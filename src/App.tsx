@@ -39,6 +39,7 @@ import { ConfiguracoesModal } from "@/components/configuracoes-modal"
 import { DuplicatasModal } from "@/components/duplicatas-modal"
 import { ConfiguracoesProvider } from "@/contexts/configuracoes-context"
 import { AuthProvider } from "@/contexts/auth-context"
+import { UsersProvider } from "@/contexts/users-context"
 import { ProtectedRoute } from "@/components/protected-route"
 import { UserHeader } from "@/components/user-header"
 import { cupomApi } from "@/lib/api"
@@ -303,9 +304,10 @@ export default function App() {
   const totalDuplicatas = Array.from(cuponsDuplicados.values()).reduce((sum, cuponsList) => sum + cuponsList.length, 0)
 
   return (
-    <AuthProvider>
-      <ProtectedRoute>
-        <ConfiguracoesProvider>
+    <UsersProvider>
+      <AuthProvider>
+        <ProtectedRoute>
+          <ConfiguracoesProvider>
           <div className={isDarkMode ? 'dark' : ''}>
             <div className="min-h-screen bg-background text-foreground">
               <div className="container mx-auto p-6">
@@ -714,8 +716,9 @@ export default function App() {
               </div>
             </div>
           </div>
-        </ConfiguracoesProvider>
-      </ProtectedRoute>
-    </AuthProvider>
+          </ConfiguracoesProvider>
+        </ProtectedRoute>
+      </AuthProvider>
+    </UsersProvider>
   )
 } 
