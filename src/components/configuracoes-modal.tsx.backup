@@ -1,0 +1,44 @@
+import * as React from "react"
+import { motion } from "framer-motion"
+import { X, Phone, User, Settings as SettingsIcon, Plus, Trash2, Edit, Save, X as XIcon, Package } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+
+import { useConfiguracoes } from "@/contexts/configuracoes-context"
+import { useToast } from "@/hooks/use-toast"
+
+interface ConfiguracoesModalProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalProps) {
+  console.log('ConfiguracoesModal renderizado, open:', open)
+  
+  if (!open) {
+    console.log('Modal fechado, retornando null')
+    return null
+  }
+  
+  console.log('Modal aberto, renderizando versão simples para teste')
+  
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
+      <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Configurações - Teste</h2>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <p>Se você está vendo esta mensagem, o modal está funcionando!</p>
+        <p>O problema estava na complexidade do conteúdo original.</p>
+      </div>
+    </div>
+  )
+} 
