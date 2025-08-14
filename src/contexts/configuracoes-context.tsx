@@ -4,10 +4,9 @@ import { cupomApi, Empresa, EmpresaInput } from "@/lib/api"
 
 // Interface para itens não reembolsáveis
 export interface ItemNaoReembolsavel {
-  id: string
-  codigo: string
-  descricao: string
-  categoria?: string
+  id: number
+  produto?: string
+  grupo?: string
   criadoEm: Date
   atualizadoEm: Date
 }
@@ -29,10 +28,12 @@ interface ConfiguracoesContextType {
   
   // Funcionalidades para itens não reembolsáveis
   itensNaoReembolsaveis: ItemNaoReembolsavel[]
-  addItemNaoReembolsavel: (descricao: string, categoria?: string) => Promise<void>
-  removeItemNaoReembolsavel: (id: string) => void
-  updateItemNaoReembolsavel: (id: string, descricao: string, categoria?: string) => void
-  isItemNaoReembolsavel: (codigo: string) => boolean
+  isLoadingItensNaoReembolsaveis: boolean
+  addItemNaoReembolsavel: (produto?: string, grupo?: string) => Promise<void>
+  removeItemNaoReembolsavel: (id: number) => Promise<void>
+  updateItemNaoReembolsavel: (id: number, produto?: string, grupo?: string) => Promise<void>
+  refreshItensNaoReembolsaveis: () => Promise<void>
+  isItemNaoReembolsavel: (id: number) => boolean
   isProdutoProibido: (nomeProduto: string) => boolean
 }
 
@@ -43,6 +44,7 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
   const [empresas, setEmpresas] = React.useState<Empresa[]>([])
   const [isLoadingEmpresas, setIsLoadingEmpresas] = React.useState(false)
   const [itensNaoReembolsaveis, setItensNaoReembolsaveis] = React.useState<ItemNaoReembolsavel[]>([])
+  const [isLoadingItensNaoReembolsaveis, setIsLoadingItensNaoReembolsaveis] = React.useState(false)
 
   // Carregar configurações do localStorage na inicialização
   React.useEffect(() => {
@@ -62,21 +64,8 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
       }
     }
 
-    // Carregar itens não reembolsáveis
-    const savedItens = localStorage.getItem('itensNaoReembolsaveis')
-    if (savedItens) {
-      try {
-        const itens = JSON.parse(savedItens)
-        const itensWithDates = itens.map((item: any) => ({
-          ...item,
-          criadoEm: new Date(item.criadoEm),
-          atualizadoEm: new Date(item.atualizadoEm)
-        }))
-        setItensNaoReembolsaveis(itensWithDates)
-      } catch (error) {
-        console.error('Erro ao carregar itens não reembolsáveis:', error)
-      }
-    }
+    // Carregar itens não reembolsáveis da API
+    refreshItensNaoReembolsaveis()
 
     // Carregar empresas da API
     refreshEmpresas()
@@ -86,11 +75,6 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
   React.useEffect(() => {
     localStorage.setItem('telefoneMotoristaConfigs', JSON.stringify(telefoneMotoristaConfigs))
   }, [telefoneMotoristaConfigs])
-
-  // Salvar itens não reembolsáveis no localStorage sempre que mudarem
-  React.useEffect(() => {
-    localStorage.setItem('itensNaoReembolsaveis', JSON.stringify(itensNaoReembolsaveis))
-  }, [itensNaoReembolsaveis])
 
   // Função para recarregar empresas da API
   const refreshEmpresas = async () => {
@@ -103,6 +87,25 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
       // Em caso de erro, manter as empresas existentes
     } finally {
       setIsLoadingEmpresas(false)
+    }
+  }
+
+  // Função para recarregar itens não reembolsáveis da API
+  const refreshItensNaoReembolsaveis = async () => {
+    setIsLoadingItensNaoReembolsaveis(true)
+    try {
+      const itensData = await cupomApi.getAllItensProibidos()
+      // Adicionar campos criadoEm e atualizadoEm se necessário, pois a API pode não retorná-los
+      const itensWithDates = itensData.map(item => ({
+        ...item,
+        criadoEm: new Date(), // Ou usar uma data default se a API não fornecer
+        atualizadoEm: new Date() // Idem
+      }))
+      setItensNaoReembolsaveis(itensWithDates)
+    } catch (error) {
+      console.error('Erro ao carregar itens não reembolsáveis:', error)
+    } finally {
+      setIsLoadingItensNaoReembolsaveis(false)
     }
   }
 
@@ -185,22 +188,21 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
   }
 
   // Funções para itens não reembolsáveis
-  const addItemNaoReembolsavel = async (descricao: string, categoria?: string) => {
+  const addItemNaoReembolsavel = async (produto?: string, grupo?: string) => {
     try {
       const newItem: ItemNaoReembolsavel = {
-        id: Date.now().toString(),
-        codigo: `PROD_${Date.now()}`,
-        descricao,
-        categoria,
+        id: Date.now(), // Usar Date.now() para gerar um ID único
+        produto,
+        grupo,
         criadoEm: new Date(),
         atualizadoEm: new Date()
       }
       
       // Salvar no banco de dados via API
       await cupomApi.saveItemProibido({
-        codigo: newItem.codigo,
-        descricao: newItem.descricao,
-        categoria: newItem.categoria
+        codigo: newItem.produto || newItem.grupo || '', // Usar produto ou grupo como código
+        descricao: newItem.produto || newItem.grupo || '', // Usar produto ou grupo como descrição
+        categoria: newItem.produto ? "PRODUTO" : "GRUPO" // Determinar categoria
       })
       
       setItensNaoReembolsaveis(prev => [...prev, newItem])
@@ -210,22 +212,45 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
     }
   }
 
-  const removeItemNaoReembolsavel = (id: string) => {
-    setItensNaoReembolsaveis(prev => prev.filter(item => item.id !== id))
+  const removeItemNaoReembolsavel = async (id: number) => {
+    try {
+      await cupomApi.deleteItemProibido(id)
+      setItensNaoReembolsaveis(prev => prev.filter(item => item.id !== id))
+    } catch (error) {
+      console.error('Erro ao remover item não reembolsável:', error)
+      throw error
+    }
   }
 
-  const updateItemNaoReembolsavel = (id: string, descricao: string, categoria?: string) => {
-    setItensNaoReembolsaveis(prev => 
-      prev.map(item => 
-        item.id === id 
-          ? { ...item, descricao, categoria, atualizadoEm: new Date() }
-          : item
+  const updateItemNaoReembolsavel = async (id: number, produto?: string, grupo?: string) => {
+    try {
+      const itemData: ItemNaoReembolsavel = {
+        id,
+        produto,
+        grupo,
+        criadoEm: itensNaoReembolsaveis.find(item => item.id === id)?.criadoEm || new Date(),
+        atualizadoEm: new Date()
+      }
+      await cupomApi.updateItemProibido(id, {
+        codigo: produto || grupo || '',
+        descricao: produto || grupo || '',
+        categoria: produto ? "PRODUTO" : "GRUPO"
+      })
+      setItensNaoReembolsaveis(prev => 
+        prev.map(item => 
+          item.id === id 
+            ? { ...item, produto, grupo, atualizadoEm: new Date() }
+            : item
+        )
       )
-    )
+    } catch (error) {
+      console.error('Erro ao atualizar item não reembolsável:', error)
+      throw error
+    }
   }
 
-  const isItemNaoReembolsavel = (codigo: string): boolean => {
-    return itensNaoReembolsaveis.some(item => item.codigo === codigo)
+  const isItemNaoReembolsavel = (id: number): boolean => {
+    return itensNaoReembolsaveis.some(item => item.id === id)
   }
 
   const isProdutoProibido = (nomeProduto: string): boolean => {
@@ -234,12 +259,10 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
     const nomeNormalizado = nomeProduto.toLowerCase().trim()
     
     return itensNaoReembolsaveis.some(item => {
-      if (item.categoria === "PRODUTO") {
-        // Para produtos específicos, comparação exata
-        return item.descricao.toLowerCase().trim() === nomeNormalizado
-      } else if (item.categoria === "GRUPO") {
-        // Para grupos, verifica se o nome do produto contém o grupo
-        const grupoNormalizado = item.descricao.toLowerCase().trim()
+      if (item.produto) { // Verifica se é um produto específico
+        return item.produto.toLowerCase().trim() === nomeNormalizado
+      } else if (item.grupo) { // Verifica se é um grupo
+        const grupoNormalizado = item.grupo.toLowerCase().trim()
         return nomeNormalizado.includes(grupoNormalizado) || grupoNormalizado.includes(nomeNormalizado)
       }
       return false
@@ -259,9 +282,11 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
     updateEmpresa,
     refreshEmpresas,
     itensNaoReembolsaveis,
+    isLoadingItensNaoReembolsaveis,
     addItemNaoReembolsavel,
     removeItemNaoReembolsavel,
     updateItemNaoReembolsavel,
+    refreshItensNaoReembolsaveis,
     isItemNaoReembolsavel,
     isProdutoProibido
   }

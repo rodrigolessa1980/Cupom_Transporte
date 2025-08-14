@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { useConfiguracoes } from "@/contexts/configuracoes-context"
-import { UsersProvider } from "@/contexts/users-context"
 import { UsersManagement } from "@/components/users-management"
 import { useToast } from "@/hooks/use-toast"
 
@@ -36,7 +35,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
   const [produto, setProduto] = React.useState("")
   const [grupo, setGrupo] = React.useState("")
   const [tipoItem, setTipoItem] = React.useState<"produto" | "grupo">("produto") // Novo estado para definir o tipo
-  const [editingItemId, setEditingItemId] = React.useState<string | null>(null)
+  const [editingItemId, setEditingItemId] = React.useState<number | null>(null)
   const [editProduto, setEditProduto] = React.useState("")
   const [editGrupo, setEditGrupo] = React.useState("")
   const [editTipoItem, setEditTipoItem] = React.useState<"produto" | "grupo">("produto")
@@ -62,7 +61,8 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
     itensNaoReembolsaveis,
     addItemNaoReembolsavel,
     removeItemNaoReembolsavel,
-    updateItemNaoReembolsavel
+    updateItemNaoReembolsavel,
+    refreshItensNaoReembolsaveis
   } = useConfiguracoes()
   const { toast } = useToast()
 
@@ -96,7 +96,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
     })
   }
 
-  const handleUpdateEmpresa = (id: string) => {
+  const handleUpdateEmpresa = (id: number) => {
     if (!editNomeEmpresa.trim() || !editCnpjEmpresa.trim()) {
       toast({
         title: "Erro",
@@ -205,13 +205,6 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
     setEditMotorista(vinculo.motorista)
   }
 
-  // Função auxiliar para buscar nome da empresa pelo ID
-  const getEmpresaName = (empresaId: number) => {
-    if (!empresaId) return "-"
-    const empresa = empresas.find(e => e.id === empresaId)
-    return empresa ? empresa.nome : "Empresa não encontrada"
-  }
-
   // Funções para gerenciar itens proibidos
   const handleAddItem = async () => {
     // Validação baseada no tipo selecionado
@@ -235,11 +228,10 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
 
     setIsAddingItem(true)
     try {
-      // Salvar com a nova lógica: se for produto, salva no campo descricao; se for grupo, salva no campo categoria
       if (tipoItem === "produto") {
-        await addItemNaoReembolsavel(produto.trim(), "PRODUTO") // Categoria especial para identificar que é produto específico
+        await addItemNaoReembolsavel(produto.trim(), undefined)
       } else {
-        await addItemNaoReembolsavel(grupo.trim(), "GRUPO") // Categoria especial para identificar que é grupo
+        await addItemNaoReembolsavel(undefined, grupo.trim())
       }
       
       setProduto("")
@@ -249,6 +241,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
         title: "Sucesso",
         description: `${tipoItem === "produto" ? "Produto" : "Grupo"} proibido adicionado com sucesso`
       })
+      refreshItensNaoReembolsaveis()
     } catch (error) {
       console.error('Erro ao adicionar item proibido:', error)
       toast({
@@ -261,7 +254,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
     }
   }
 
-  const handleUpdateItem = (id: string) => {
+  const handleUpdateItem = async (id: number) => {
     // Validação baseada no tipo selecionado
     if (editTipoItem === "produto" && !editProduto.trim()) {
       toast({
@@ -281,49 +274,67 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
       return
     }
 
-    // Atualizar com a nova lógica
-    if (editTipoItem === "produto") {
-      updateItemNaoReembolsavel(id, editProduto.trim(), "PRODUTO")
-    } else {
-      updateItemNaoReembolsavel(id, editGrupo.trim(), "GRUPO")
+    try {
+      if (editTipoItem === "produto") {
+        await updateItemNaoReembolsavel(id, editProduto.trim(), undefined)
+      } else {
+        await updateItemNaoReembolsavel(id, undefined, editGrupo.trim())
+      }
+      
+      setEditingItemId(null)
+      setEditProduto("")
+      setEditGrupo("")
+      setEditTipoItem("produto")
+      
+      toast({
+        title: "Sucesso",
+        description: "Item proibido atualizado com sucesso"
+      })
+      refreshItensNaoReembolsaveis()
+    } catch (error) {
+      console.error('Erro ao atualizar item proibido:', error)
+      toast({
+        title: "Erro",
+        description: "Não foi possível atualizar o item proibido. Tente novamente.",
+        variant: "destructive"
+      })
     }
-    
-    setEditingItemId(null)
-    setEditProduto("")
-    setEditGrupo("")
-    setEditTipoItem("produto")
-    
-    toast({
-      title: "Sucesso",
-      description: "Item proibido atualizado com sucesso"
-    })
   }
 
-  const handleRemoveItem = (id: string) => {
-    removeItemNaoReembolsavel(id)
-    toast({
-      title: "Sucesso",
-      description: "Item proibido removido com sucesso"
-    })
+  const handleRemoveItem = async (id: number) => {
+    try {
+      await removeItemNaoReembolsavel(id)
+      toast({
+        title: "Sucesso",
+        description: "Item proibido removido com sucesso"
+      })
+      refreshItensNaoReembolsaveis()
+    } catch (error) {
+      console.error('Erro ao remover item proibido:', error)
+      toast({
+        title: "Erro",
+        description: "Não foi possível remover o item proibido. Tente novamente.",
+        variant: "destructive"
+      })
+    }
   }
 
   const startEditItem = (item: any) => {
     setEditingItemId(item.id)
     
-    // Determinar o tipo baseado na categoria
-    if (item.categoria === "PRODUTO") {
+    if (item.produto) {
       setEditTipoItem("produto")
-      setEditProduto(item.descricao)
+      setEditProduto(item.produto)
       setEditGrupo("")
-    } else if (item.categoria === "GRUPO") {
+    } else if (item.grupo) {
       setEditTipoItem("grupo")
       setEditProduto("")
-      setEditGrupo(item.descricao)
+      setEditGrupo(item.grupo)
     } else {
-      // Para compatibilidade com dados antigos
+      // Fallback para dados antigos se não tiver produto nem grupo
       setEditTipoItem("produto")
-      setEditProduto(item.descricao)
-      setEditGrupo(item.categoria || "")
+      setEditProduto(item.descricao || "")
+      setEditGrupo("")
     }
   }
   
@@ -416,11 +427,6 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                <div>
                                  <p className="font-medium">{config.motorista}</p>
                                  <p className="text-sm text-gray-600">{config.telefone}</p>
-                                 {config.empresa && (
-                                   <p className="text-xs text-blue-600">
-                                     Transportadora: {empresas.find(e => e.id === config.empresa)?.nome || 'N/A'}
-                                   </p>
-                                 )}
                                </div>
                                <button 
                                  onClick={() => removeTelefoneMotoristaConfig(config.id)}
@@ -476,18 +482,19 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                              </div>
                              <div>
                                <Label htmlFor="empresaVinculo">Transportadora (Opcional)</Label>
-                               <select 
-                                 value={""} 
-                                 onChange={(e) => {}}
-                                 className="w-full p-2 border rounded"
-                               >
-                                 <option value="">Nenhuma transportadora</option>
-                                 {empresas.map((empresa) => (
-                                   <option key={empresa.id} value={empresa.id}>
-                                     {empresa.nome}
-                                   </option>
-                                 ))}
-                               </select>
+                               <Select value={""} onValueChange={() => {}}>
+                                 <SelectTrigger>
+                                   <SelectValue placeholder="Selecione uma transportadora" />
+                                 </SelectTrigger>
+                                 <SelectContent>
+                                   <SelectItem value="">Nenhuma transportadora</SelectItem>
+                                   {empresas.map((empresa) => (
+                                     <SelectItem key={empresa.id} value={empresa.id.toString()}>
+                                       {empresa.nome}
+                                     </SelectItem>
+                                   ))}
+                                 </SelectContent>
+                               </Select>
                                {empresas.length === 0 && (
                                  <p className="text-xs text-muted-foreground mt-1">
                                    Cadastre transportadoras na aba "Transportadora" para vinculá-las
@@ -552,7 +559,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                        <SelectContent>
                                          <SelectItem value="">Nenhuma transportadora</SelectItem>
                                          {empresas.map((empresa) => (
-                                           <SelectItem key={empresa.id} value={empresa.id}>
+                                           <SelectItem key={empresa.id} value={empresa.id.toString()}>
                                              {empresa.nome}
                                            </SelectItem>
                                          ))}
@@ -584,7 +591,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
                                      <div className="text-sm font-medium">{vinculo.motorista}</div>
                                      <div className="font-mono text-sm">{vinculo.telefone}</div>
-                                     <div className="text-sm">{getEmpresaName(vinculo.empresa)}</div>
+                                     <div className="text-sm">-</div>
                                      <div className="flex gap-2">
                                        <Button
                                          variant="outline"
@@ -918,7 +925,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                  {editingItemId === item.id ? (
                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
                                      <div className="font-mono text-sm text-muted-foreground">
-                                       {item.codigo}
+                                       {item.id}
                                      </div>
                                      <div className="space-y-2">
                                        <Select value={editTipoItem} onValueChange={(value: "produto" | "grupo") => setEditTipoItem(value)}>
@@ -972,14 +979,14 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                    </div>
                                  ) : (
                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                                     <div className="font-mono text-sm">{item.codigo}</div>
-                                     <div className="text-sm font-medium">{item.descricao}</div>
+                                     <div className="font-mono text-sm">{item.id}</div>
+                                     <div className="text-sm font-medium">{item.produto || item.grupo}</div>
                                      <div className="text-sm">
-                                       {item.categoria === "PRODUTO" ? (
+                                       {item.produto ? (
                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
                                            Produto Específico
                                          </span>
-                                       ) : item.categoria === "GRUPO" ? (
+                                       ) : item.grupo ? (
                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">
                                            Grupo de Produtos
                                          </span>
@@ -1025,9 +1032,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
 
 
               <TabsContent value="usuarios" className="mt-6">
-                <UsersProvider>
-                  <UsersManagement />
-                </UsersProvider>
+                <UsersManagement />
               </TabsContent>
 
               <TabsContent value="sistema" className="mt-6">

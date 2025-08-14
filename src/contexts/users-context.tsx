@@ -51,7 +51,9 @@ interface UsersProviderProps {
 
 // Função para converter SystemUser para User (interface local)
 const convertSystemUserToUser = (systemUser: SystemUser): User => {
-  const { role, ativo } = USER_STATUS_MAP[systemUser.status as keyof typeof USER_STATUS_MAP]
+  // Fornecer um valor padrão se systemUser.status for null ou undefined
+  const statusValue = systemUser.status !== null && systemUser.status !== undefined ? systemUser.status : 2; // 2 = Operador Ativo
+  const { role, ativo } = USER_STATUS_MAP[statusValue as keyof typeof USER_STATUS_MAP];
   return {
     id: systemUser.id.toString(),
     username: systemUser.user,
@@ -60,10 +62,10 @@ const convertSystemUserToUser = (systemUser: SystemUser): User => {
     senha: systemUser.senha,
     role: role,
     ativo: ativo,
-    criadoEm: new Date(), // Como não temos essas informações da API, usar data atual
+    criadoEm: new Date(),
     atualizadoEm: new Date()
-  }
-}
+  };
+};
 
 // Função para converter UserInput para SystemUserInput
 const convertUserInputToSystemUserInput = (userInput: UserInput): SystemUserInput => {
@@ -104,7 +106,14 @@ export const UsersProvider: React.FC<UsersProviderProps> = ({ children }) => {
   const addUser = async (userData: UserInput): Promise<void> => {
     setIsLoading(true)
     try {
-      const systemUserInput = convertUserInputToSystemUserInput(userData)
+      // Garante que o status seja enviado, padrão para 2 (Operador Ativo) se não definido ou for null
+      const systemUserInput: SystemUserInput = {
+        user: userData.username,
+        nome: userData.nome,
+        email: userData.email,
+        senha: userData.senha,
+        status: getStatusFromRoleAndActive(userData.role, userData.ativo)
+      };
       await cupomApi.createUser(systemUserInput)
       await loadUsers() // Recarregar lista de usuários
     } catch (error) {

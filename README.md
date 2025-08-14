@@ -66,8 +66,18 @@ Sistema web para gerenciamento de cupons fiscais de transporte, desenvolvido em 
 
 #### Cupons
 - **Base URL**: `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom`
-- **Métodos**: GET, DELETE
+- **Métodos**: GET, PUT, POST, DELETE (DELETE para `/excluir`)
 - **Campos**: `n_cupom`, `estabelecimento`, `cnpj`, `valor_total`, `valor_reembolso`, `form_pgto`, `data_registro`, `transportadora`, `telefone`, `status`, `dono_cupom_id`
+
+#### Itens Proibidos
+- **Base URL**: `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido`
+- **Métodos**: GET, POST, PUT, DELETE
+- **Campos**: `produto`, `grupo` (apenas um deve ser preenchido)
+
+#### Produtos
+- **Base URL**: `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto`
+- **Métodos**: GET, POST, PUT, DELETE
+- **Campos**: `produto`, `qtd`, `valor_uni`, `reembolso` (0 ou 1), `cupom_id`, `item_proibido_id`
 
 ### 🔄 Fluxo de Dados
 

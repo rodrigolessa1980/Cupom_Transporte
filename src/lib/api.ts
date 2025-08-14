@@ -3,9 +3,34 @@ import { CupomFiscal, CupomFiscalInput } from '@/types/cupom'
 
 // Interface para itens proibidos
 export interface ItemProibido {
-  codigo: string
-  descricao: string
-  categoria?: string
+  id: number
+  produto?: string
+  grupo?: string
+}
+
+export interface ItemProibidoInput {
+  produto?: string
+  grupo?: string
+}
+
+// Interface para Produto (API)
+export interface ApiProduto {
+  id: number
+  produto?: string
+  qtd?: number
+  valor_uni: string
+  reembolso?: number // 0 ou 1
+  cupom_id: number
+  item_proibido_id: number
+}
+
+export interface ProdutoInput {
+  produto?: string
+  qtd?: number
+  valor_uni: string
+  reembolso?: boolean
+  cupom_id: number
+  item_proibido_id: number
 }
 
 // Interface para autenticação
@@ -662,28 +687,218 @@ export const cupomApi = {
   },
 
   // Função para salvar item proibido no banco de dados
-  async saveItemProibido(item: ItemProibido): Promise<void> {
+  async saveItemProibido(item: ItemProibidoInput): Promise<ItemProibido> {
     try {
-      const response = await axios.post('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/item_proibido', {
-        codigo: parseInt(item.codigo),
-        descricao: item.descricao,
-        categoria: item.categoria || null
-      }, {
+      const response = await axios.post<{ success: boolean, message: string, data?: ItemProibido }>(
+        'https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido',
+        {
+          produto: item.produto || null,
+          grupo: item.grupo || null
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao salvar item proibido')
+      }
+
+      console.log('Item proibido salvo com sucesso na API')
+      if (response.data.data) {
+        return response.data.data
+      }
+      throw new Error('Item proibido criado mas não foi possível recuperar os dados')
+    } catch (error) {
+      console.error('Erro ao salvar item proibido:', error)
+      throw new Error('Não foi possível salvar o item proibido na API')
+    }
+  },
+
+  async getAllItensProibidos(): Promise<ItemProibido[]> {
+    try {
+      const response = await axios.get<ItemProibido[]>('https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido', {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        timeout: 10000 // 10 segundos de timeout
+        timeout: 10000
       })
+      return response.data || []
+    } catch (error) {
+      console.error('Erro ao carregar itens proibidos:', error)
+      throw new Error('Não foi possível carregar os itens proibidos')
+    }
+  },
 
-      if (response.status !== 200 && response.status !== 201) {
-        throw new Error(`Erro ao salvar item proibido: ${response.status}`)
+  async updateItemProibido(id: number, itemData: ItemProibidoInput): Promise<ItemProibido> {
+    try {
+      const response = await axios.put<{ success: boolean, message: string, data?: ItemProibido }>(
+        `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido`,
+        {
+          id: id,
+          produto: itemData.produto || null,
+          grupo: itemData.grupo || null
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao atualizar item proibido')
       }
 
-      console.log('Item proibido salvo com sucesso na API')
+      if (response.data.data) {
+        return response.data.data
+      }
+      throw new Error('Item proibido atualizado mas não foi possível recuperar os dados')
     } catch (error) {
-      console.error('Erro ao salvar item proibido:', error)
-      throw new Error('Não foi possível salvar o item proibido na API')
+      console.error('Erro ao atualizar item proibido:', error)
+      throw new Error('Não foi possível atualizar o item proibido')
+    }
+  },
+
+  async deleteItemProibido(id: number): Promise<void> {
+    try {
+      const response = await axios.delete<{ success: boolean, message: string }>(
+        `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          data: { id: id },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao excluir item proibido')
+      }
+      console.log('Item proibido excluído com sucesso')
+    } catch (error) {
+      console.error('Erro ao excluir item proibido:', error)
+      throw new Error('Não foi possível excluir o item proibido')
+    }
+  },
+
+  // ===== FUNÇÕES PARA PRODUTOS =====
+  async getAllProdutos(): Promise<ApiProduto[]> {
+    try {
+      const response = await axios.get<ApiProduto[]>('https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 10000
+      })
+      return response.data || []
+    } catch (error) {
+      console.error('Erro ao carregar produtos:', error)
+      throw new Error('Não foi possível carregar os produtos')
+    }
+  },
+
+  async createProduto(produto: ProdutoInput): Promise<ApiProduto> {
+    try {
+      const response = await axios.post<{ success: boolean, message: string, data?: ApiProduto }>(
+        'https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto',
+        {
+          produto: produto.produto || null,
+          qtd: produto.qtd || null,
+          valor_uni: produto.valor_uni,
+          reembolso: produto.reembolso ? 1 : 0,
+          cupom_id: produto.cupom_id,
+          item_proibido_id: produto.item_proibido_id
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao criar produto')
+      }
+      if (response.data.data) {
+        return response.data.data
+      }
+      throw new Error('Produto criado mas não foi possível recuperar os dados')
+    } catch (error) {
+      console.error('Erro ao criar produto:', error)
+      throw new Error('Não foi possível criar o produto')
+    }
+  },
+
+  async updateProduto(id: number, produtoData: Partial<ProdutoInput>): Promise<ApiProduto> {
+    try {
+      const response = await axios.put<{ success: boolean, message: string, data?: ApiProduto }>(
+        `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto`,
+        {
+          id: id,
+          produto: produtoData.produto || null,
+          qtd: produtoData.qtd || null,
+          valor_uni: produtoData.valor_uni,
+          reembolso: produtoData.reembolso !== undefined ? (produtoData.reembolso ? 1 : 0) : undefined,
+          cupom_id: produtoData.cupom_id,
+          item_proibido_id: produtoData.item_proibido_id
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao atualizar produto')
+      }
+
+      if (response.data.data) {
+        return response.data.data
+      }
+      throw new Error('Produto atualizado mas não foi possível recuperar os dados')
+    } catch (error) {
+      console.error('Erro ao atualizar produto:', error)
+      throw new Error('Não foi possível atualizar o produto')
+    }
+  },
+
+  async deleteProduto(id: number): Promise<void> {
+    try {
+      const response = await axios.delete<{ success: boolean, message: string }>(
+        `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          data: { id: id },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao excluir produto')
+      }
+      console.log('Produto excluído com sucesso')
+    } catch (error) {
+      console.error('Erro ao excluir produto:', error)
+      throw new Error('Não foi possível excluir o produto')
     }
   },
 
@@ -702,7 +917,7 @@ export const cupomApi = {
       )
 
       if (user) {
-        const { role, ativo } = USER_STATUS_MAP[user.status as keyof typeof USER_STATUS_MAP]
+        const { role } = USER_STATUS_MAP[user.status as keyof typeof USER_STATUS_MAP]
         return {
           success: true,
           user: {
@@ -716,19 +931,9 @@ export const cupomApi = {
       }
 
       return {
-        success: true,
-        user: {
-          id: "1",
-          username: "rr",
-          nome: "r",
-          role: "admin"
-        },
-        token: `token_${1}_${Date.now()}`, // Token simulado
+        success: false,
+        message: 'Credenciais inválidas'
       }
-
-      /*
-      success: false,
-      message: 'Credenciais inválidas'*/
 
     } catch (error) {
       console.error('Erro na autenticação:', error)
