@@ -129,13 +129,26 @@ export const UsersManagement: React.FC = () => {
     }
 
     try {
-      // Filtrar campos vazios/undefined
-      const updateData = Object.entries(editUser).reduce((acc, [key, value]) => {
-        if (value !== undefined && value !== '') {
-          acc[key as keyof UserInput] = value
-        }
-        return acc
-      }, {} as Partial<UserInput>)
+      const updateData: Partial<UserInput> = {};
+
+      if (editUser.username !== undefined && editUser.username.trim() !== '') {
+        updateData.username = editUser.username;
+      }
+      if (editUser.nome !== undefined && editUser.nome.trim() !== '') {
+        updateData.nome = editUser.nome;
+      }
+      if (editUser.email !== undefined && editUser.email.trim() !== '') {
+        updateData.email = editUser.email;
+      }
+      if (editUser.senha !== undefined && editUser.senha !== null && editUser.senha.trim() !== '') {
+        updateData.senha = editUser.senha;
+      }
+      if (editUser.role !== undefined) {
+        updateData.role = editUser.role;
+      }
+      if (editUser.ativo !== undefined) {
+        updateData.ativo = editUser.ativo;
+      }
 
       await updateUser(id, updateData)
       resetEditForm()
@@ -422,6 +435,32 @@ export const UsersManagement: React.FC = () => {
                             <SelectItem value="admin">Administrador</SelectItem>
                           </SelectContent>
                         </Select>
+                        <div>
+                          <Label htmlFor="edit-ativo">Status *</Label>
+                          <Select
+                            value={editUser.ativo === true ? "true" : "false"}
+                            onValueChange={(value) => setEditUser({...editUser, ativo: value === "true"})}
+                            disabled={isLoading}
+                          >
+                            <SelectTrigger id="edit-ativo">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="true">
+                                <div className="flex items-center gap-2">
+                                  <UserCheck className="h-4 w-4" />
+                                  Ativo
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="false">
+                                <div className="flex items-center gap-2">
+                                  <UserX className="h-4 w-4" />
+                                  Inativo
+                                </div>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <div className="relative">
                           <Input
                             type={showEditPassword ? "text" : "password"}

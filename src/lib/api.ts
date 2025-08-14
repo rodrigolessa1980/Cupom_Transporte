@@ -329,7 +329,7 @@ export const cupomApi = {
   async getAllUsers(): Promise<SystemUser[]> {
     try {
       console.log('Fazendo requisição para buscar usuários...')
-      const response = await axios.get<SystemUser[]>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/usuario', {
+      const response = await axios.get<SystemUser[] | { data: SystemUser[] }>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/usuario', {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
@@ -338,7 +338,15 @@ export const cupomApi = {
       })
 
       console.log('Usuários recebidos:', response.data)
-      return response.data || []
+      
+      if (Array.isArray(response.data)) {
+        return response.data;
+      } else if (response.data && typeof response.data === 'object' && 'data' in response.data && Array.isArray(response.data.data)) {
+        return response.data.data;
+      } else {
+        console.warn('Resposta inesperada da API de usuários, retornando array vazio:', response.data);
+        return [];
+      }
     } catch (error) {
       console.error('Erro ao carregar usuários:', error)
       throw new Error('Não foi possível carregar os usuários')
