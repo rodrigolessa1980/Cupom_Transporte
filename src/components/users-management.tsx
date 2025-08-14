@@ -12,9 +12,8 @@ import {
   Shield, 
   UserCheck, 
   UserX,
-  Building,
-  Key,
-  RefreshCw
+  RefreshCw,
+  Mail
 } from 'lucide-react'
 
 import { Button } from "@/components/ui/button"
@@ -24,12 +23,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { useUsers, UserInput } from "@/contexts/users-context"
-import { useConfiguracoes } from "@/contexts/configuracoes-context"
 import { useToast } from "@/hooks/use-toast"
 
 export const UsersManagement: React.FC = () => {
   const { users, isLoading, addUser, updateUser, removeUser, toggleUserStatus, refreshUsers } = useUsers()
-  const { empresas } = useConfiguracoes()
   const { toast } = useToast()
 
   // Estados do formulário
@@ -42,9 +39,9 @@ export const UsersManagement: React.FC = () => {
   const [newUser, setNewUser] = useState<UserInput>({
     username: '',
     nome: '',
+    email: '',
     senha: '',
     role: 'user',
-    transportadora: '',
     ativo: true
   })
 
@@ -56,9 +53,9 @@ export const UsersManagement: React.FC = () => {
     setNewUser({
       username: '',
       nome: '',
+      email: '',
       senha: '',
       role: 'user',
-      transportadora: '',
       ativo: true
     })
     setShowPassword(false)
@@ -75,15 +72,18 @@ export const UsersManagement: React.FC = () => {
     if (!isEdit) {
       if (!user.username?.trim()) return 'Nome de usuário é obrigatório'
       if (!user.nome?.trim()) return 'Nome completo é obrigatório'
+      if (!user.email?.trim()) return 'Email é obrigatório'
       if (!user.senha?.trim()) return 'Senha é obrigatória'
     } else {
       if (user.username !== undefined && !user.username?.trim()) return 'Nome de usuário não pode ser vazio'
       if (user.nome !== undefined && !user.nome?.trim()) return 'Nome completo não pode ser vazio'
+      if (user.email !== undefined && !user.email?.trim()) return 'Email não pode ser vazio'
       if (user.senha !== undefined && user.senha !== '' && !user.senha?.trim()) return 'Senha não pode ser vazia'
     }
 
     if (user.username && user.username.length < 3) return 'Nome de usuário deve ter pelo menos 3 caracteres'
     if (user.senha && user.senha.length < 4) return 'Senha deve ter pelo menos 4 caracteres'
+    if (user.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)) return 'Email deve ter um formato válido'
 
     return null
   }
@@ -201,9 +201,9 @@ export const UsersManagement: React.FC = () => {
     setEditUser({
       username: user.username,
       nome: user.nome,
+      email: user.email || '',
       senha: '', // Não pré-popular senha por segurança
       role: user.role,
-      transportadora: user.transportadora || '',
       ativo: user.ativo
     })
   }
@@ -285,6 +285,17 @@ export const UsersManagement: React.FC = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
+                    <Label htmlFor="new-email">Email *</Label>
+                    <Input
+                      id="new-email"
+                      type="email"
+                      value={newUser.email}
+                      onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                      placeholder="joao@exemplo.com"
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <div>
                     <Label htmlFor="new-senha">Senha *</Label>
                     <div className="relative">
                       <Input
@@ -305,58 +316,33 @@ export const UsersManagement: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <div>
-                    <Label htmlFor="new-role">Tipo de Usuário *</Label>
-                    <Select 
-                      value={newUser.role} 
-                      onValueChange={(value: 'admin' | 'user') => setNewUser({...newUser, role: value})}
-                      disabled={isLoading}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="user">
-                          <div className="flex items-center gap-2">
-                            <User className="h-4 w-4" />
-                            Operador
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="admin">
-                          <div className="flex items-center gap-2">
-                            <Shield className="h-4 w-4" />
-                            Administrador
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
 
                 <div>
-                  <Label htmlFor="new-transportadora">Transportadora</Label>
+                  <Label htmlFor="new-role">Tipo de Usuário *</Label>
                   <Select 
-                    value={newUser.transportadora || 'none'} 
-                    onValueChange={(value) => setNewUser({...newUser, transportadora: value === 'none' ? '' : value})}
+                    value={newUser.role} 
+                    onValueChange={(value: 'admin' | 'user') => setNewUser({...newUser, role: value})}
                     disabled={isLoading}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Selecione uma transportadora (opcional)" />
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Nenhuma transportadora</SelectItem>
-                      {empresas.map((empresa) => (
-                        <SelectItem key={empresa.id} value={empresa.nome}>
-                          {empresa.nome}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="user">
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4" />
+                          Operador
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="admin">
+                        <div className="flex items-center gap-2">
+                          <Shield className="h-4 w-4" />
+                          Administrador
+                        </div>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
-                  {empresas.length === 0 && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Cadastre transportadoras na aba "Transportadora" para vinculá-las aos usuários
-                    </p>
-                  )}
                 </div>
 
                 <div className="flex gap-2 justify-end">
@@ -393,8 +379,8 @@ export const UsersManagement: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-6 gap-4 text-sm font-medium">
                   <span>Usuário</span>
                   <span>Nome</span>
+                  <span>Email</span>
                   <span>Tipo</span>
-                  <span>Transportadora</span>
                   <span>Status</span>
                   <span>Ações</span>
                 </div>
@@ -416,6 +402,13 @@ export const UsersManagement: React.FC = () => {
                           placeholder="Nome completo"
                           disabled={isLoading}
                         />
+                        <Input
+                          type="email"
+                          value={editUser.email || ''}
+                          onChange={(e) => setEditUser({...editUser, email: e.target.value})}
+                          placeholder="Email"
+                          disabled={isLoading}
+                        />
                         <Select 
                           value={editUser.role || 'user'} 
                           onValueChange={(value: 'admin' | 'user') => setEditUser({...editUser, role: value})}
@@ -427,23 +420,6 @@ export const UsersManagement: React.FC = () => {
                           <SelectContent>
                             <SelectItem value="user">Operador</SelectItem>
                             <SelectItem value="admin">Administrador</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Select 
-                          value={editUser.transportadora || 'none'} 
-                          onValueChange={(value) => setEditUser({...editUser, transportadora: value === 'none' ? '' : value})}
-                          disabled={isLoading}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Transportadora" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Nenhuma</SelectItem>
-                            {empresas.map((empresa) => (
-                              <SelectItem key={empresa.id} value={empresa.nome}>
-                                {empresa.nome}
-                              </SelectItem>
-                            ))}
                           </SelectContent>
                         </Select>
                         <div className="relative">
@@ -485,6 +461,10 @@ export const UsersManagement: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-center">
                         <div className="font-mono text-sm">{user.username}</div>
                         <div className="text-sm font-medium">{user.nome}</div>
+                        <div className="text-sm flex items-center gap-1">
+                          <Mail className="h-3 w-3" />
+                          {user.email || '-'}
+                        </div>
                         <div className="text-sm">
                           {user.role === 'admin' ? (
                             <Badge variant="default" className="bg-blue-100 text-blue-800">
@@ -496,16 +476,6 @@ export const UsersManagement: React.FC = () => {
                               <User className="h-3 w-3 mr-1" />
                               Operador
                             </Badge>
-                          )}
-                        </div>
-                        <div className="text-sm">
-                          {user.transportadora ? (
-                            <div className="flex items-center gap-1 text-xs">
-                              <Building className="h-3 w-3" />
-                              {user.transportadora}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
                           )}
                         </div>
                         <div>

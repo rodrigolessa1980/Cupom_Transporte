@@ -26,7 +26,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
   const [nomeEmpresa, setNomeEmpresa] = React.useState("")
   const [cnpjEmpresa, setCnpjEmpresa] = React.useState("")
   const [telefoneEmpresa, setTelefoneEmpresa] = React.useState("")
-  const [editingEmpresaId, setEditingEmpresaId] = React.useState<string | null>(null)
+  const [editingEmpresaId, setEditingEmpresaId] = React.useState<number | null>(null)
   const [editNomeEmpresa, setEditNomeEmpresa] = React.useState("")
   const [editCnpjEmpresa, setEditCnpjEmpresa] = React.useState("")
   const [editTelefoneEmpresa, setEditTelefoneEmpresa] = React.useState("")
@@ -45,11 +45,9 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
   // Estados para vinculos telefone/motorista
   const [telefone, setTelefone] = React.useState("")
   const [motorista, setMotorista] = React.useState("")
-  const [empresaVinculo, setEmpresaVinculo] = React.useState("")
   const [editingVinculoId, setEditingVinculoId] = React.useState<string | null>(null)
   const [editTelefone, setEditTelefone] = React.useState("")
   const [editMotorista, setEditMotorista] = React.useState("")
-  const [editEmpresaVinculo, setEditEmpresaVinculo] = React.useState("")
   const [isAddingVinculo, setIsAddingVinculo] = React.useState(false)
 
   const { 
@@ -120,7 +118,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
     })
   }
 
-  const handleRemoveEmpresa = (id: string) => {
+  const handleRemoveEmpresa = (id: number) => {
     removeEmpresa(id)
     toast({
       title: "Sucesso",
@@ -138,7 +136,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
   // Funções para gerenciar vínculos telefone/motorista/empresa
   const handleAddVinculo = () => {
     try {
-      console.log("Iniciando handleAddVinculo...", { telefone, motorista, empresaVinculo })
+      console.log("Iniciando handleAddVinculo...", { telefone, motorista })
       
       if (!telefone.trim() || !motorista.trim()) {
         toast({
@@ -150,12 +148,11 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
       }
 
       console.log("Chamando addTelefoneMotoristaConfig...")
-      addTelefoneMotoristaConfig(telefone.trim(), motorista.trim(), empresaVinculo)
+      addTelefoneMotoristaConfig(telefone.trim(), motorista.trim())
       
       console.log("Limpando formulário...")
       setTelefone("")
       setMotorista("")
-      setEmpresaVinculo("")
       setIsAddingVinculo(false)
       
       toast({
@@ -183,11 +180,10 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
       return
     }
 
-    updateTelefoneMotoristaConfig(id, editTelefone.trim(), editMotorista.trim(), editEmpresaVinculo)
+    updateTelefoneMotoristaConfig(id, editTelefone.trim(), editMotorista.trim())
     setEditingVinculoId(null)
     setEditTelefone("")
     setEditMotorista("")
-    setEditEmpresaVinculo("")
     
     toast({
       title: "Sucesso",
@@ -207,11 +203,10 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
     setEditingVinculoId(vinculo.id)
     setEditTelefone(vinculo.telefone)
     setEditMotorista(vinculo.motorista)
-    setEditEmpresaVinculo(vinculo.empresa || "")
   }
 
   // Função auxiliar para buscar nome da empresa pelo ID
-  const getEmpresaName = (empresaId: string) => {
+  const getEmpresaName = (empresaId: number) => {
     if (!empresaId) return "-"
     const empresa = empresas.find(e => e.id === empresaId)
     return empresa ? empresa.nome : "Empresa não encontrada"
@@ -482,8 +477,8 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                              <div>
                                <Label htmlFor="empresaVinculo">Transportadora (Opcional)</Label>
                                <select 
-                                 value={empresaVinculo} 
-                                 onChange={(e) => setEmpresaVinculo(e.target.value)}
+                                 value={""} 
+                                 onChange={(e) => {}}
                                  className="w-full p-2 border rounded"
                                >
                                  <option value="">Nenhuma transportadora</option>
@@ -507,7 +502,6 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                  setIsAddingVinculo(false)
                                  setTelefone("")
                                  setMotorista("")
-                                 setEmpresaVinculo("")
                                }}
                              >
                                <XIcon className="h-4 w-4 mr-2" />
@@ -551,7 +545,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                        placeholder="Telefone"
                                        type="tel"
                                      />
-                                     <Select value={editEmpresaVinculo} onValueChange={setEditEmpresaVinculo}>
+                                     <Select value={""} onValueChange={() => {}}>
                                        <SelectTrigger>
                                          <SelectValue placeholder="Selecione uma transportadora" />
                                        </SelectTrigger>
@@ -579,7 +573,6 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                            setEditingVinculoId(null)
                                            setEditTelefone("")
                                            setEditMotorista("")
-                                           setEditEmpresaVinculo("")
                                          }}
                                        >
                                          <XIcon className="h-3 w-3 mr-1" />

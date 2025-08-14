@@ -1,14 +1,14 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react'
-import { cupomApi } from '@/lib/api'
+import { cupomApi, SystemUser, SystemUserInput, USER_STATUS_MAP, getStatusFromRoleAndActive } from '@/lib/api'
 
-// Tipos para usuários
+// Tipos para usuários (interface local para compatibilidade)
 export interface User {
   id: string
   username: string
   nome: string
-  senha: string // Para exibição, normalmente seria omitida
+  email: string
+  senha: string
   role: 'admin' | 'user'
-  transportadora?: string
   ativo: boolean
   criadoEm: Date
   atualizadoEm: Date
@@ -17,9 +17,9 @@ export interface User {
 export interface UserInput {
   username: string
   nome: string
+  email: string
   senha: string
   role: 'admin' | 'user'
-  transportadora?: string
   ativo: boolean
 }
 
@@ -49,72 +49,50 @@ interface UsersProviderProps {
   children: ReactNode
 }
 
+// Função para converter SystemUser para User (interface local)
+const convertSystemUserToUser = (systemUser: SystemUser): User => {
+  const { role, ativo } = USER_STATUS_MAP[systemUser.status as keyof typeof USER_STATUS_MAP]
+  return {
+    id: systemUser.id.toString(),
+    username: systemUser.user,
+    nome: systemUser.nome,
+    email: systemUser.email,
+    senha: systemUser.senha,
+    role: role,
+    ativo: ativo,
+    criadoEm: new Date(), // Como não temos essas informações da API, usar data atual
+    atualizadoEm: new Date()
+  }
+}
+
+// Função para converter UserInput para SystemUserInput
+const convertUserInputToSystemUserInput = (userInput: UserInput): SystemUserInput => {
+  return {
+    user: userInput.username,
+    nome: userInput.nome,
+    email: userInput.email,
+    senha: userInput.senha,
+    status: getStatusFromRoleAndActive(userInput.role, userInput.ativo)
+  }
+}
+
 export const UsersProvider: React.FC<UsersProviderProps> = ({ children }) => {
   const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
-  // Carregar usuários do localStorage (simula API)
-  const loadUsers = () => {
+  // Carregar usuários da API
+  const loadUsers = async () => {
+    setIsLoading(true)
     try {
-      const savedUsers = localStorage.getItem('system_users')
-      if (savedUsers) {
-        const parsedUsers = JSON.parse(savedUsers).map((user: any) => ({
-          ...user,
-          criadoEm: new Date(user.criadoEm),
-          atualizadoEm: new Date(user.atualizadoEm)
-        }))
-        setUsers(parsedUsers)
-      } else {
-        // Carregar usuários padrão se não existir nenhum
-        const defaultUsers: User[] = [
-          {
-            id: '1',
-            username: 'admin',
-            nome: 'Administrador',
-            senha: 'admin123',
-            role: 'admin',
-            ativo: true,
-            criadoEm: new Date(),
-            atualizadoEm: new Date()
-          },
-          {
-            id: '2',
-            username: 'operador',
-            nome: 'Operador',
-            senha: 'op123',
-            role: 'user',
-            ativo: true,
-            criadoEm: new Date(),
-            atualizadoEm: new Date()
-          },
-          {
-            id: '3',
-            username: 'transportadora',
-            nome: 'Transportadora',
-            senha: 'trans123',
-            role: 'user',
-            transportadora: 'Transportadora ABC',
-            ativo: true,
-            criadoEm: new Date(),
-            atualizadoEm: new Date()
-          }
-        ]
-        setUsers(defaultUsers)
-        localStorage.setItem('system_users', JSON.stringify(defaultUsers))
-      }
+      const systemUsers = await cupomApi.getAllUsers()
+      const convertedUsers = systemUsers.map(convertSystemUserToUser)
+      setUsers(convertedUsers)
     } catch (error) {
       console.error('Erro ao carregar usuários:', error)
-    }
-  }
-
-  // Salvar usuários no localStorage
-  const saveUsers = (updatedUsers: User[]) => {
-    try {
-      localStorage.setItem('system_users', JSON.stringify(updatedUsers))
-      setUsers(updatedUsers)
-    } catch (error) {
-      console.error('Erro ao salvar usuários:', error)
-      throw new Error('Não foi possível salvar os dados')
+      // Em caso de erro, manter usuários existentes ou definir array vazio
+      setUsers([])
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -123,76 +101,45 @@ export const UsersProvider: React.FC<UsersProviderProps> = ({ children }) => {
     loadUsers()
   }, [])
 
-  const refreshUsers = async (): Promise<void> => {
+  const addUser = async (userData: UserInput): Promise<void> => {
     setIsLoading(true)
     try {
-      // Simular delay da API
-      await new Promise(resolve => setTimeout(resolve, 500))
-      loadUsers()
+      const systemUserInput = convertUserInputToSystemUserInput(userData)
+      await cupomApi.createUser(systemUserInput)
+      await loadUsers() // Recarregar lista de usuários
+    } catch (error) {
+      console.error('Erro ao criar usuário:', error)
+      throw error
     } finally {
       setIsLoading(false)
     }
   }
 
-  const addUser = async (userInput: UserInput): Promise<void> => {
+  const updateUser = async (id: string, userData: Partial<UserInput>): Promise<void> => {
     setIsLoading(true)
     try {
-      // Verificar se username já existe
-      const existingUser = users.find(u => u.username.toLowerCase() === userInput.username.toLowerCase())
-      if (existingUser) {
-        throw new Error('Nome de usuário já existe')
+      // Buscar o usuário atual para manter dados não alterados
+      const currentUser = users.find(u => u.id === id)
+      if (!currentUser) {
+        throw new Error('Usuário não encontrado')
       }
 
-      // Simular delay da API
-      await new Promise(resolve => setTimeout(resolve, 800))
-
-      const newUser: User = {
-        id: Date.now().toString(),
-        ...userInput,
-        criadoEm: new Date(),
-        atualizadoEm: new Date()
+      // Mesclar dados atuais com novos dados
+      const updatedUserData: UserInput = {
+        username: userData.username ?? currentUser.username,
+        nome: userData.nome ?? currentUser.nome,
+        email: userData.email ?? '', // Campo obrigatório para API
+        senha: userData.senha ?? currentUser.senha,
+        role: userData.role ?? currentUser.role,
+        ativo: userData.ativo ?? currentUser.ativo
       }
 
-      const updatedUsers = [...users, newUser]
-      saveUsers(updatedUsers)
-
-      // Em produção, aqui você chamaria a API
-      // await cupomApi.createUser(userInput)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const updateUser = async (id: string, userInput: Partial<UserInput>): Promise<void> => {
-    setIsLoading(true)
-    try {
-      // Verificar se username já existe (exceto para o próprio usuário)
-      if (userInput.username) {
-        const existingUser = users.find(u => 
-          u.id !== id && u.username.toLowerCase() === userInput.username.toLowerCase()
-        )
-        if (existingUser) {
-          throw new Error('Nome de usuário já existe')
-        }
-      }
-
-      // Simular delay da API
-      await new Promise(resolve => setTimeout(resolve, 600))
-
-      const updatedUsers = users.map(user => 
-        user.id === id 
-          ? { 
-              ...user, 
-              ...userInput, 
-              atualizadoEm: new Date() 
-            }
-          : user
-      )
-
-      saveUsers(updatedUsers)
-
-      // Em produção, aqui você chamaria a API
-      // await cupomApi.updateUser(id, userInput)
+      const systemUserInput = convertUserInputToSystemUserInput(updatedUserData)
+      await cupomApi.updateUser(parseInt(id), systemUserInput)
+      await loadUsers() // Recarregar lista de usuários
+    } catch (error) {
+      console.error('Erro ao atualizar usuário:', error)
+      throw error
     } finally {
       setIsLoading(false)
     }
@@ -201,20 +148,11 @@ export const UsersProvider: React.FC<UsersProviderProps> = ({ children }) => {
   const removeUser = async (id: string): Promise<void> => {
     setIsLoading(true)
     try {
-      // Não permitir excluir o último admin
-      const admins = users.filter(u => u.role === 'admin' && u.id !== id)
-      if (admins.length === 0) {
-        throw new Error('Não é possível excluir o último administrador')
-      }
-
-      // Simular delay da API
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      const updatedUsers = users.filter(user => user.id !== id)
-      saveUsers(updatedUsers)
-
-      // Em produção, aqui você chamaria a API
-      // await cupomApi.deleteUser(id)
+      await cupomApi.deleteUser(parseInt(id))
+      await loadUsers() // Recarregar lista de usuários
+    } catch (error) {
+      console.error('Erro ao excluir usuário:', error)
+      throw error
     } finally {
       setIsLoading(false)
     }
@@ -223,35 +161,18 @@ export const UsersProvider: React.FC<UsersProviderProps> = ({ children }) => {
   const toggleUserStatus = async (id: string): Promise<void> => {
     setIsLoading(true)
     try {
-      const user = users.find(u => u.id === id)
-      if (!user) {
-        throw new Error('Usuário não encontrado')
-      }
-
-      // Não permitir desativar o último admin ativo
-      if (user.role === 'admin' && user.ativo) {
-        const activeAdmins = users.filter(u => u.role === 'admin' && u.ativo && u.id !== id)
-        if (activeAdmins.length === 0) {
-          throw new Error('Não é possível desativar o último administrador ativo')
-        }
-      }
-
-      // Simular delay da API
-      await new Promise(resolve => setTimeout(resolve, 400))
-
-      const updatedUsers = users.map(u => 
-        u.id === id 
-          ? { ...u, ativo: !u.ativo, atualizadoEm: new Date() }
-          : u
-      )
-
-      saveUsers(updatedUsers)
-
-      // Em produção, aqui você chamaria a API
-      // await cupomApi.toggleUserStatus(id)
+      await cupomApi.toggleUserStatus(parseInt(id))
+      await loadUsers() // Recarregar lista de usuários
+    } catch (error) {
+      console.error('Erro ao alterar status do usuário:', error)
+      throw error
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const refreshUsers = async (): Promise<void> => {
+    await loadUsers()
   }
 
   const value: UsersContextType = {

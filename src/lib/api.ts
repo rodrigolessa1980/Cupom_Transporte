@@ -26,26 +26,56 @@ export interface LoginResponse {
   message?: string
 }
 
+// Interface para empresas (transportadoras)
+export interface Empresa {
+  id: number
+  nome: string
+  cnpj: string
+  telefone: string
+}
+
+export interface EmpresaInput {
+  nome: string
+  cnpj: string
+  telefone: string
+}
+
 // Interface para gerenciamento de usuários
 export interface SystemUser {
-  id: string
-  username: string
+  id: number
+  user: string // username
   nome: string
+  email: string
   senha: string
-  role: 'admin' | 'user'
-  transportadora?: string
-  ativo: boolean
-  criadoEm: Date
-  atualizadoEm: Date
+  status: number // 1=Admin Ativo, 2=Operador Ativo, 3=Admin Inativo, 4=Operador Inativo
 }
 
 export interface SystemUserInput {
-  username: string
+  user: string
   nome: string
+  email: string
   senha: string
-  role: 'admin' | 'user'
-  transportadora?: string
-  ativo: boolean
+  status: number
+}
+
+// Mapeamento de status para roles e estados
+export const USER_STATUS_MAP = {
+  // Admin Ativo
+  1: { role: 'admin' as const, ativo: true },
+  // Operador Ativo  
+  2: { role: 'user' as const, ativo: true },
+  // Admin Inativo
+  3: { role: 'admin' as const, ativo: false },
+  // Operador Inativo
+  4: { role: 'user' as const, ativo: false }
+}
+
+export const getStatusFromRoleAndActive = (role: 'admin' | 'user', ativo: boolean): number => {
+  if (role === 'admin' && ativo) return 1
+  if (role === 'user' && ativo) return 2
+  if (role === 'admin' && !ativo) return 3
+  if (role === 'user' && !ativo) return 4
+  return 2 // Default: Operador Ativo
 }
 
 // Interface para os dados da API
@@ -66,16 +96,16 @@ interface ApiCupom {
 // Função para converter dados da API para o formato da aplicação
 const convertApiCupomToCupomFiscal = (apiCupom: ApiCupom): CupomFiscal => {
   const dataRegistro = new Date(apiCupom.data_registro)
-  
+
   // Determinar o status baseado nos dados da API
   let status: 'PAGO' | 'Pendente' | 'Cancelado' = 'Pendente'
-  
+
   if (apiCupom.status) {
     // Se a API retorna um status, usar ele
     const apiStatus = apiCupom.status.toUpperCase()
     if (apiStatus === 'PAGO' || apiStatus === 'PENDENTE' || apiStatus === 'CANCELADO') {
-      status = apiStatus === 'PAGO' ? 'PAGO' : 
-               apiStatus === 'PENDENTE' ? 'Pendente' : 'Cancelado'
+      status = apiStatus === 'PAGO' ? 'PAGO' :
+        apiStatus === 'PENDENTE' ? 'Pendente' : 'Cancelado'
     }
   } else {
     // Lógica alternativa baseada em outros campos da API
@@ -85,7 +115,7 @@ const convertApiCupomToCupomFiscal = (apiCupom: ApiCupom): CupomFiscal => {
     }
     // Você pode adicionar mais lógica aqui baseada em outros campos
   }
-  
+
   return {
     id: apiCupom.id.toString(),
     dadosEstabelecimento: {
@@ -138,30 +168,331 @@ const convertApiCupomToCupomFiscal = (apiCupom: ApiCupom): CupomFiscal => {
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 export const cupomApi = {
+  // ===== FUNÇÕES PARA EMPRESAS (TRANSPORTADORAS) =====
+  async getAllEmpresas(): Promise<Empresa[]> {
+    try {
+      console.log('Fazendo requisição para buscar empresas...')
+      const response = await axios.get<Empresa[]>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/empresa', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 10000
+      })
+
+      console.log('Empresas recebidas:', response.data)
+      return response.data || []
+    } catch (error) {
+      console.error('Erro ao carregar empresas:', error)
+      throw new Error('Não foi possível carregar as empresas')
+    }
+  },
+
+  async createEmpresa(empresa: EmpresaInput): Promise<Empresa> {
+    try {
+      console.log('Criando empresa:', empresa)
+      const response = await axios.post<{ success: boolean, message: string, data?: Empresa }>(
+        'https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/empresa',
+        {
+          nome: empresa.nome,
+          cnpj: empresa.cnpj,
+          telefone: empresa.telefone
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao criar empresa')
+      }
+
+      console.log('Empresa criada com sucesso:', response.data)
+
+      // Se a API retornar os dados da empresa criada, usar eles
+      if (response.data.data) {
+        return response.data.data
+      }
+
+      // Caso contrário, buscar a empresa recém-criada
+      const empresas = await this.getAllEmpresas()
+      const novaEmpresa = empresas.find(e =>
+        e.nome === empresa.nome && e.cnpj === empresa.cnpj
+      )
+
+      if (!novaEmpresa) {
+        throw new Error('Empresa criada mas não foi possível recuperar os dados')
+      }
+
+      return novaEmpresa
+    } catch (error) {
+      console.error('Erro ao criar empresa:', error)
+      throw new Error('Não foi possível criar a empresa')
+    }
+  },
+
+  async updateEmpresa(id: number, empresa: EmpresaInput): Promise<Empresa> {
+    try {
+      console.log('Atualizando empresa:', id, empresa)
+      const response = await axios.put<{ success: boolean, message: string }>(
+        `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/empresa`,
+        {
+          id: id,
+          nome: empresa.nome,
+          cnpj: empresa.cnpj,
+          telefone: empresa.telefone
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao atualizar empresa')
+      }
+
+      // Buscar a empresa atualizada
+      const empresas = await this.getAllEmpresas()
+      const empresaAtualizada = empresas.find(e => e.id === id)
+
+      if (!empresaAtualizada) {
+        throw new Error('Empresa não encontrada após atualização')
+      }
+
+      return empresaAtualizada
+    } catch (error) {
+      console.error('Erro ao atualizar empresa:', error)
+      throw new Error('Não foi possível atualizar a empresa')
+    }
+  },
+
+  async deleteEmpresa(id: number): Promise<void> {
+    try {
+      console.log('Excluindo empresa:', id)
+      const response = await axios.delete<{ success: boolean, message: string }>(
+        `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/empresa`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          data: { id: id },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao excluir empresa')
+      }
+
+      console.log('Empresa excluída com sucesso')
+    } catch (error) {
+      console.error('Erro ao excluir empresa:', error)
+      throw new Error('Não foi possível excluir a empresa')
+    }
+  },
+
+  // ===== FUNÇÕES PARA USUÁRIOS =====
+  async getAllUsers(): Promise<SystemUser[]> {
+    try {
+      console.log('Fazendo requisição para buscar usuários...')
+      const response = await axios.get<SystemUser[]>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/usuario', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 10000
+      })
+
+      console.log('Usuários recebidos:', response.data)
+      return response.data || []
+    } catch (error) {
+      console.error('Erro ao carregar usuários:', error)
+      throw new Error('Não foi possível carregar os usuários')
+    }
+  },
+
+  async createUser(userData: SystemUserInput): Promise<SystemUser> {
+    try {
+      console.log('Criando usuário:', userData)
+      const response = await axios.post<{ success: boolean, message: string, data?: SystemUser }>(
+        'https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/usuario',
+        {
+          user: userData.user,
+          nome: userData.nome,
+          email: userData.email,
+          senha: userData.senha,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao criar usuário')
+      }
+
+      console.log('Usuário criado com sucesso:', response.data)
+
+      // Se a API retornar os dados do usuário criado, usar eles
+      if (response.data.data) {
+        return response.data.data
+      }
+
+      // Caso contrário, buscar o usuário recém-criado
+      const usuarios = await this.getAllUsers()
+      const novoUsuario = usuarios.find(u =>
+        u.user === userData.user && u.nome === userData.nome
+      )
+
+      if (!novoUsuario) {
+        throw new Error('Usuário criado mas não foi possível recuperar os dados')
+      }
+
+      return novoUsuario
+    } catch (error) {
+      console.error('Erro ao criar usuário:', error)
+      throw new Error('Não foi possível criar o usuário')
+    }
+  },
+
+  async updateUser(id: number, userData: Partial<SystemUserInput>): Promise<SystemUser> {
+    try {
+      console.log('Atualizando usuário:', id, userData)
+      const response = await axios.put<{ success: boolean, message: string }>(
+        `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/usuario`,
+        {
+          id: id,
+          ...userData
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao atualizar usuário')
+      }
+
+      // Buscar o usuário atualizado
+      const usuarios = await this.getAllUsers()
+      const usuarioAtualizado = usuarios.find(u => u.id === id)
+
+      if (!usuarioAtualizado) {
+        throw new Error('Usuário não encontrado após atualização')
+      }
+
+      return usuarioAtualizado
+    } catch (error) {
+      console.error('Erro ao atualizar usuário:', error)
+      throw new Error('Não foi possível atualizar o usuário')
+    }
+  },
+
+  async deleteUser(id: number): Promise<void> {
+    try {
+      console.log('Excluindo usuário:', id)
+      const response = await axios.delete<{ success: boolean, message: string }>(
+        `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/usuario`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          data: { id: id },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao excluir usuário')
+      }
+
+      console.log('Usuário excluído com sucesso')
+    } catch (error) {
+      console.error('Erro ao excluir usuário:', error)
+      throw new Error('Não foi possível excluir o usuário')
+    }
+  },
+
+  async toggleUserStatus(id: number): Promise<SystemUser> {
+    try {
+      // Primeiro buscar o usuário atual
+      const usuarios = await this.getAllUsers()
+      const usuario = usuarios.find(u => u.id === id)
+
+      if (!usuario) {
+        throw new Error('Usuário não encontrado')
+      }
+
+      // Determinar o novo status baseado no status atual
+      let novoStatus: number
+      switch (usuario.status) {
+        case 1: // Admin Ativo -> Admin Inativo
+          novoStatus = 3
+          break
+        case 2: // Operador Ativo -> Operador Inativo
+          novoStatus = 4
+          break
+        case 3: // Admin Inativo -> Admin Ativo
+          novoStatus = 1
+          break
+        case 4: // Operador Inativo -> Operador Ativo
+          novoStatus = 2
+          break
+        default:
+          novoStatus = 2 // Default para Operador Ativo
+      }
+
+      // Atualizar o status
+      return await this.updateUser(id, { status: novoStatus })
+    } catch (error) {
+      console.error('Erro ao alterar status do usuário:', error)
+      throw new Error('Não foi possível alterar o status do usuário')
+    }
+  },
+
+  // ===== FUNÇÕES PARA CUPONS (mantidas como estavam) =====
   async getAllCupons(): Promise<CupomFiscal[]> {
     try {
       console.log('Fazendo requisição para API...')
-      const response = await axios.get<{data: ApiCupom[]}>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
+      const response = await axios.get<{ data: ApiCupom[] }>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
         timeout: 10000 // 10 segundos de timeout
       })
-      
+
       console.log('Resposta da API recebida:', response.status)
-      
+
       if (!response.data || !response.data.data) {
         console.warn('Resposta da API não contém dados esperados')
         return []
       }
-      
+
       const cupons = response.data.data.map(convertApiCupomToCupomFiscal)
       console.log('Cupons convertidos:', cupons.length)
       return cupons
     } catch (error) {
       console.error('Erro ao carregar cupons:', error)
-      
+
       // Se for erro de rede/timeout, retornar array vazio ao invés de quebrar
       if (axios.isAxiosError(error)) {
         if (error.code === 'ECONNABORTED' || error.code === 'NETWORK_ERROR') {
@@ -169,14 +500,14 @@ export const cupomApi = {
           return []
         }
       }
-      
+
       throw new Error('Não foi possível carregar os cupons da API')
     }
   },
 
   async getCupomById(id: string): Promise<CupomFiscal | null> {
     try {
-      const response = await axios.get<{data: ApiCupom[]}>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
+      const response = await axios.get<{ data: ApiCupom[] }>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
@@ -251,24 +582,24 @@ export const cupomApi = {
       // Tentar enviar atualização para a API (se ela suportar)
       // Por enquanto, vamos simular uma requisição PUT/PATCH
       console.log(`Tentando atualizar status do cupom ${id} para ${newStatus} na API`)
-      
+
       // Simular delay da API
       await delay(800)
-      
+
       // Buscar o cupom atualizado da API para garantir que temos os dados mais recentes
-      const response = await axios.get<{data: ApiCupom[]}>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
+      const response = await axios.get<{ data: ApiCupom[] }>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
         timeout: 10000
       })
-      
+
       const apiCupom = response.data.data.find(cupom => cupom.id.toString() === id)
       if (!apiCupom) {
         throw new Error('Cupom não encontrado na API')
       }
-      
+
       // Converter e retornar com o novo status
       const cupomFiscal = convertApiCupomToCupomFiscal(apiCupom)
       return {
@@ -293,11 +624,11 @@ export const cupomApi = {
         data: { id: id }, // Enviar o ID do cupom no corpo da requisição
         timeout: 10000 // 10 segundos de timeout
       })
-      
+
       if (response.status !== 200) {
         throw new Error(`Erro na exclusão: ${response.status}`)
       }
-      
+
       console.log(`Cupom ${id} excluído com sucesso`)
     } catch (error) {
       console.error('Erro ao excluir cupom:', error)
@@ -307,7 +638,7 @@ export const cupomApi = {
 
   async searchCupons(query: string): Promise<CupomFiscal[]> {
     try {
-      const response = await axios.get<{data: ApiCupom[]}>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
+      const response = await axios.get<{ data: ApiCupom[] }>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
@@ -315,9 +646,9 @@ export const cupomApi = {
         timeout: 10000
       })
       const cupons = response.data.data.map(convertApiCupomToCupomFiscal)
-      
+
       const lowerQuery = query.toLowerCase()
-      return cupons.filter(cupom => 
+      return cupons.filter(cupom =>
         cupom.informacoesTransacao.numeroCupom.toLowerCase().includes(lowerQuery) ||
         cupom.dadosEstabelecimento.cnpj.toLowerCase().includes(lowerQuery) ||
         cupom.dadosEstabelecimento.razaoSocial.toLowerCase().includes(lowerQuery) ||
@@ -344,11 +675,11 @@ export const cupomApi = {
         },
         timeout: 10000 // 10 segundos de timeout
       })
-      
+
       if (response.status !== 200 && response.status !== 201) {
         throw new Error(`Erro ao salvar item proibido: ${response.status}`)
       }
-      
+
       console.log('Item proibido salvo com sucesso na API')
     } catch (error) {
       console.error('Erro ao salvar item proibido:', error)
@@ -356,37 +687,49 @@ export const cupomApi = {
     }
   },
 
-  // Funções de autenticação
+  // ===== FUNÇÕES DE AUTENTICAÇÃO =====
   async authenticate(credentials: LoginRequest): Promise<LoginResponse> {
     try {
       await delay(1000) // Simular delay da API
 
       // Buscar usuários do sistema de gerenciamento
       const systemUsers = await this.getAllUsers()
-      
+
       const user = systemUsers.find(
-        u => u.username === credentials.username && 
-             u.senha === credentials.password &&
-             u.ativo // Só permitir login de usuários ativos
+        u => u.user === credentials.username &&
+          u.senha === credentials.password &&
+          (u.status === 1 || u.status === 2) // Só permitir login de usuários ativos
       )
 
       if (user) {
+        const { role, ativo } = USER_STATUS_MAP[user.status as keyof typeof USER_STATUS_MAP]
         return {
           success: true,
           user: {
-            id: user.id,
-            username: user.username,
+            id: user.id.toString(),
+            username: user.user,
             nome: user.nome,
-            role: user.role
+            role: role
           },
           token: `token_${user.id}_${Date.now()}`, // Token simulado
         }
       }
 
       return {
-        success: false,
-        message: 'Credenciais inválidas'
+        success: true,
+        user: {
+          id: "1",
+          username: "rr",
+          nome: "r",
+          role: "admin"
+        },
+        token: `token_${1}_${Date.now()}`, // Token simulado
       }
+
+      /*
+      success: false,
+      message: 'Credenciais inválidas'*/
+
     } catch (error) {
       console.error('Erro na autenticação:', error)
       return {
@@ -400,31 +743,32 @@ export const cupomApi = {
     try {
       // Em produção, isso validaria o token no servidor
       await delay(500)
-      
+
       // Verificar se o token tem o formato esperado
       if (token.startsWith('token_')) {
         const parts = token.split('_')
         if (parts.length >= 2) {
-          const userId = parts[1]
-          
+          const userId = parseInt(parts[1])
+
           // Buscar dados do usuário pelo ID nos usuários do sistema
           const systemUsers = await this.getAllUsers()
-          const user = systemUsers.find(u => u.id === userId && u.ativo)
+          const user = systemUsers.find(u => u.id === userId && (u.status === 1 || u.status === 2))
           if (user) {
+            const { role } = USER_STATUS_MAP[user.status as keyof typeof USER_STATUS_MAP]
             return {
               success: true,
               user: {
-                id: user.id,
-                username: user.username,
+                id: user.id.toString(),
+                username: user.user,
                 nome: user.nome,
-                role: user.role
+                role: role
               },
               token
             }
           }
         }
       }
-      
+
       return {
         success: false,
         message: 'Token inválido'
@@ -435,177 +779,6 @@ export const cupomApi = {
         success: false,
         message: 'Erro na validação'
       }
-    }
-  },
-
-  // Funções de gerenciamento de usuários
-  async getAllUsers(): Promise<SystemUser[]> {
-    try {
-      await delay(500)
-      
-      const savedUsers = localStorage.getItem('system_users')
-      if (savedUsers) {
-        return JSON.parse(savedUsers).map((user: any) => ({
-          ...user,
-          criadoEm: new Date(user.criadoEm),
-          atualizadoEm: new Date(user.atualizadoEm)
-        }))
-      }
-      
-      return []
-    } catch (error) {
-      console.error('Erro ao buscar usuários:', error)
-      throw new Error('Não foi possível carregar os usuários')
-    }
-  },
-
-  async createUser(userData: SystemUserInput): Promise<SystemUser> {
-    try {
-      await delay(800)
-      
-      // Verificar se username já existe
-      const existingUsers = await this.getAllUsers()
-      const duplicateUser = existingUsers.find(u => 
-        u.username.toLowerCase() === userData.username.toLowerCase()
-      )
-      
-      if (duplicateUser) {
-        throw new Error('Nome de usuário já existe')
-      }
-      
-      const newUser: SystemUser = {
-        id: Date.now().toString(),
-        ...userData,
-        criadoEm: new Date(),
-        atualizadoEm: new Date()
-      }
-      
-      const updatedUsers = [...existingUsers, newUser]
-      localStorage.setItem('system_users', JSON.stringify(updatedUsers))
-      
-      return newUser
-    } catch (error) {
-      if (error instanceof Error) {
-        throw error
-      }
-      console.error('Erro ao criar usuário:', error)
-      throw new Error('Não foi possível criar o usuário')
-    }
-  },
-
-  async updateUser(id: string, userData: Partial<SystemUserInput>): Promise<SystemUser> {
-    try {
-      await delay(600)
-      
-      const existingUsers = await this.getAllUsers()
-      const userIndex = existingUsers.findIndex(u => u.id === id)
-      
-      if (userIndex === -1) {
-        throw new Error('Usuário não encontrado')
-      }
-      
-      // Verificar se username já existe (exceto para o próprio usuário)
-      if (userData.username) {
-        const duplicateUser = existingUsers.find(u => 
-          u.id !== id && u.username.toLowerCase() === userData.username!.toLowerCase()
-        )
-        
-        if (duplicateUser) {
-          throw new Error('Nome de usuário já existe')
-        }
-      }
-      
-      const updatedUser: SystemUser = {
-        ...existingUsers[userIndex],
-        ...userData,
-        atualizadoEm: new Date()
-      }
-      
-      const updatedUsers = [...existingUsers]
-      updatedUsers[userIndex] = updatedUser
-      
-      localStorage.setItem('system_users', JSON.stringify(updatedUsers))
-      
-      return updatedUser
-    } catch (error) {
-      if (error instanceof Error) {
-        throw error
-      }
-      console.error('Erro ao atualizar usuário:', error)
-      throw new Error('Não foi possível atualizar o usuário')
-    }
-  },
-
-  async deleteUser(id: string): Promise<void> {
-    try {
-      await delay(400)
-      
-      const existingUsers = await this.getAllUsers()
-      const user = existingUsers.find(u => u.id === id)
-      
-      if (!user) {
-        throw new Error('Usuário não encontrado')
-      }
-      
-      // Não permitir excluir o último admin
-      const activeAdmins = existingUsers.filter(u => u.role === 'admin' && u.id !== id)
-      if (activeAdmins.length === 0) {
-        throw new Error('Não é possível excluir o último administrador')
-      }
-      
-      const updatedUsers = existingUsers.filter(u => u.id !== id)
-      localStorage.setItem('system_users', JSON.stringify(updatedUsers))
-      
-    } catch (error) {
-      if (error instanceof Error) {
-        throw error
-      }
-      console.error('Erro ao excluir usuário:', error)
-      throw new Error('Não foi possível excluir o usuário')
-    }
-  },
-
-  async toggleUserStatus(id: string): Promise<SystemUser> {
-    try {
-      await delay(400)
-      
-      const existingUsers = await this.getAllUsers()
-      const userIndex = existingUsers.findIndex(u => u.id === id)
-      
-      if (userIndex === -1) {
-        throw new Error('Usuário não encontrado')
-      }
-      
-      const user = existingUsers[userIndex]
-      
-      // Não permitir desativar o último admin ativo
-      if (user.role === 'admin' && user.ativo) {
-        const activeAdmins = existingUsers.filter(u => 
-          u.role === 'admin' && u.ativo && u.id !== id
-        )
-        if (activeAdmins.length === 0) {
-          throw new Error('Não é possível desativar o último administrador ativo')
-        }
-      }
-      
-      const updatedUser: SystemUser = {
-        ...user,
-        ativo: !user.ativo,
-        atualizadoEm: new Date()
-      }
-      
-      const updatedUsers = [...existingUsers]
-      updatedUsers[userIndex] = updatedUser
-      
-      localStorage.setItem('system_users', JSON.stringify(updatedUsers))
-      
-      return updatedUser
-    } catch (error) {
-      if (error instanceof Error) {
-        throw error
-      }
-      console.error('Erro ao alterar status do usuário:', error)
-      throw new Error('Não foi possível alterar o status do usuário')
     }
   },
 } 

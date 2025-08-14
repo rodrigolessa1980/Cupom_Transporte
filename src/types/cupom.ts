@@ -56,7 +56,7 @@ export type StatusCupom = 'PAGO' | 'Pendente' | 'Cancelado'
 
 // Interface para Empresa
 export interface Empresa {
-  id: string
+  id: number
   nome: string
   cnpj: string
   telefone: string
@@ -104,7 +104,6 @@ export interface CupomFiscalResumo {
 export interface TelefoneMotoristaConfig {
   telefone: string
   motorista: string
-  empresa?: string
   id: string
   criadoEm: Date
   atualizadoEm: Date

@@ -1,6 +1,6 @@
 import * as React from "react"
-import { TelefoneMotoristaConfig, Empresa } from "@/types/cupom"
-import { cupomApi } from "@/lib/api"
+import { TelefoneMotoristaConfig } from "@/types/cupom"
+import { cupomApi, Empresa, EmpresaInput } from "@/lib/api"
 
 // Interface para itens não reembolsáveis
 export interface ItemNaoReembolsavel {
@@ -14,16 +14,18 @@ export interface ItemNaoReembolsavel {
 
 interface ConfiguracoesContextType {
   telefoneMotoristaConfigs: TelefoneMotoristaConfig[]
-  addTelefoneMotoristaConfig: (telefone: string, motorista: string, empresa?: string) => void
+  addTelefoneMotoristaConfig: (telefone: string, motorista: string) => void
   removeTelefoneMotoristaConfig: (id: string) => void
-  updateTelefoneMotoristaConfig: (id: string, telefone: string, motorista: string, empresa?: string) => void
+  updateTelefoneMotoristaConfig: (id: string, telefone: string, motorista: string) => void
   getMotoristaByTelefone: (telefone: string | null | undefined) => string | null
   
   // Funcionalidades para empresas
   empresas: Empresa[]
-  addEmpresa: (nome: string, cnpj: string, telefone: string) => void
-  removeEmpresa: (id: string) => void
-  updateEmpresa: (id: string, nome: string, cnpj: string, telefone: string) => void
+  isLoadingEmpresas: boolean
+  addEmpresa: (nome: string, cnpj: string, telefone: string) => Promise<void>
+  removeEmpresa: (id: number) => Promise<void>
+  updateEmpresa: (id: number, nome: string, cnpj: string, telefone: string) => Promise<void>
+  refreshEmpresas: () => Promise<void>
   
   // Funcionalidades para itens não reembolsáveis
   itensNaoReembolsaveis: ItemNaoReembolsavel[]
@@ -39,6 +41,7 @@ const ConfiguracoesContext = React.createContext<ConfiguracoesContextType | unde
 export function ConfiguracoesProvider({ children }: { children: React.ReactNode }) {
   const [telefoneMotoristaConfigs, setTelefoneMotoristaConfigs] = React.useState<TelefoneMotoristaConfig[]>([])
   const [empresas, setEmpresas] = React.useState<Empresa[]>([])
+  const [isLoadingEmpresas, setIsLoadingEmpresas] = React.useState(false)
   const [itensNaoReembolsaveis, setItensNaoReembolsaveis] = React.useState<ItemNaoReembolsavel[]>([])
 
   // Carregar configurações do localStorage na inicialização
@@ -59,22 +62,6 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
       }
     }
 
-    // Carregar empresas
-    const savedEmpresas = localStorage.getItem('empresas')
-    if (savedEmpresas) {
-      try {
-        const empresas = JSON.parse(savedEmpresas)
-        const empresasWithDates = empresas.map((empresa: any) => ({
-          ...empresa,
-          criadoEm: new Date(empresa.criadoEm),
-          atualizadoEm: new Date(empresa.atualizadoEm)
-        }))
-        setEmpresas(empresasWithDates)
-      } catch (error) {
-        console.error('Erro ao carregar empresas:', error)
-      }
-    }
-
     // Carregar itens não reembolsáveis
     const savedItens = localStorage.getItem('itensNaoReembolsaveis')
     if (savedItens) {
@@ -90,6 +77,9 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
         console.error('Erro ao carregar itens não reembolsáveis:', error)
       }
     }
+
+    // Carregar empresas da API
+    refreshEmpresas()
   }, [])
 
   // Salvar configurações no localStorage sempre que mudarem
@@ -97,23 +87,31 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
     localStorage.setItem('telefoneMotoristaConfigs', JSON.stringify(telefoneMotoristaConfigs))
   }, [telefoneMotoristaConfigs])
 
-  // Salvar empresas no localStorage sempre que mudarem
-  React.useEffect(() => {
-    localStorage.setItem('empresas', JSON.stringify(empresas))
-  }, [empresas])
-
   // Salvar itens não reembolsáveis no localStorage sempre que mudarem
   React.useEffect(() => {
     localStorage.setItem('itensNaoReembolsaveis', JSON.stringify(itensNaoReembolsaveis))
   }, [itensNaoReembolsaveis])
 
-  const addTelefoneMotoristaConfig = (telefone: string, motorista: string, empresa?: string) => {
+  // Função para recarregar empresas da API
+  const refreshEmpresas = async () => {
+    setIsLoadingEmpresas(true)
+    try {
+      const empresasData = await cupomApi.getAllEmpresas()
+      setEmpresas(empresasData)
+    } catch (error) {
+      console.error('Erro ao carregar empresas:', error)
+      // Em caso de erro, manter as empresas existentes
+    } finally {
+      setIsLoadingEmpresas(false)
+    }
+  }
+
+  const addTelefoneMotoristaConfig = (telefone: string, motorista: string) => {
     try {
       const newConfig: TelefoneMotoristaConfig = {
         id: Date.now().toString(),
         telefone,
         motorista,
-        empresa: empresa || undefined,
         criadoEm: new Date(),
         atualizadoEm: new Date()
       }
@@ -133,97 +131,82 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
     setTelefoneMotoristaConfigs(prev => prev.filter(config => config.id !== id))
   }
 
-  const updateTelefoneMotoristaConfig = (id: string, telefone: string, motorista: string, empresa?: string) => {
+  const updateTelefoneMotoristaConfig = (id: string, telefone: string, motorista: string) => {
     setTelefoneMotoristaConfigs(prev => 
       prev.map(config => 
         config.id === id 
-          ? { ...config, telefone, motorista, empresa, atualizadoEm: new Date() }
+          ? { ...config, telefone, motorista, atualizadoEm: new Date() }
           : config
       )
     )
   }
 
   const getMotoristaByTelefone = (telefone: string | null | undefined): string | null => {
-    // Verificar se telefone é válido
-    if (!telefone || typeof telefone !== 'string') {
-      return null
-    }
+    if (!telefone) return null
     
-    // Normalizar o telefone para comparação (remover formatação)
-    const normalizedTelefone = telefone.replace(/\D/g, '')
-    
-    // Se não há telefone após normalização, retornar null
-    if (!normalizedTelefone) {
-      return null
-    }
-    
-    const config = telefoneMotoristaConfigs.find(config => {
-      const configTelefone = config.telefone.replace(/\D/g, '')
-      return configTelefone === normalizedTelefone
-    })
+    const config = telefoneMotoristaConfigs.find(
+      config => config.telefone.replace(/\D/g, '') === telefone.replace(/\D/g, '')
+    )
     
     return config ? config.motorista : null
   }
 
-  // Funcionalidades para empresas
-  const addEmpresa = (nome: string, cnpj: string, telefone: string) => {
-    const newEmpresa: Empresa = {
-      id: Date.now().toString(),
-      nome,
-      cnpj,
-      telefone,
-      criadoEm: new Date(),
-      atualizadoEm: new Date()
-    }
-    setEmpresas(prev => [...prev, newEmpresa])
-  }
-
-  const removeEmpresa = (id: string) => {
-    setEmpresas(prev => prev.filter(empresa => empresa.id !== id))
-  }
-
-  const updateEmpresa = (id: string, nome: string, cnpj: string, telefone: string) => {
-    setEmpresas(prev => 
-      prev.map(empresa => 
-        empresa.id === id 
-          ? { ...empresa, nome, cnpj, telefone, atualizadoEm: new Date() }
-          : empresa
-      )
-    )
-  }
-
-  // Funcionalidades para itens não reembolsáveis
-  const addItemNaoReembolsavel = async (descricao: string, categoria?: string) => {
-    // Gerar código auto incrementado
-    let nextCode = 1
-    if (itensNaoReembolsaveis.length > 0) {
-      const maxCode = Math.max(...itensNaoReembolsaveis.map(item => parseInt(item.codigo)))
-      nextCode = maxCode + 1
-    }
-    
-    const codigo = nextCode.toString().padStart(3, '0') // Formato 001, 002, etc.
-    
-    // Salvar no banco de dados primeiro
+  // Funções para empresas
+  const addEmpresa = async (nome: string, cnpj: string, telefone: string) => {
     try {
-      await cupomApi.saveItemProibido({
-        codigo,
-        descricao,
-        categoria
-      })
-      
-      // Se salvou com sucesso no banco, adicionar ao estado local
+      const novaEmpresa: EmpresaInput = { nome, cnpj, telefone }
+      await cupomApi.createEmpresa(novaEmpresa)
+      await refreshEmpresas() // Recarregar lista de empresas
+    } catch (error) {
+      console.error('Erro ao adicionar empresa:', error)
+      throw error
+    }
+  }
+
+  const removeEmpresa = async (id: number) => {
+    try {
+      await cupomApi.deleteEmpresa(id)
+      await refreshEmpresas() // Recarregar lista de empresas
+    } catch (error) {
+      console.error('Erro ao remover empresa:', error)
+      throw error
+    }
+  }
+
+  const updateEmpresa = async (id: number, nome: string, cnpj: string, telefone: string) => {
+    try {
+      const empresaData: EmpresaInput = { nome, cnpj, telefone }
+      await cupomApi.updateEmpresa(id, empresaData)
+      await refreshEmpresas() // Recarregar lista de empresas
+    } catch (error) {
+      console.error('Erro ao atualizar empresa:', error)
+      throw error
+    }
+  }
+
+  // Funções para itens não reembolsáveis
+  const addItemNaoReembolsavel = async (descricao: string, categoria?: string) => {
+    try {
       const newItem: ItemNaoReembolsavel = {
         id: Date.now().toString(),
-        codigo,
+        codigo: `PROD_${Date.now()}`,
         descricao,
         categoria,
         criadoEm: new Date(),
         atualizadoEm: new Date()
       }
+      
+      // Salvar no banco de dados via API
+      await cupomApi.saveItemProibido({
+        codigo: newItem.codigo,
+        descricao: newItem.descricao,
+        categoria: newItem.categoria
+      })
+      
       setItensNaoReembolsaveis(prev => [...prev, newItem])
     } catch (error) {
-      console.error('Erro ao salvar item proibido:', error)
-      throw error // Re-throw para que o componente possa tratar o erro
+      console.error('Erro ao adicionar item não reembolsável:', error)
+      throw error
     }
   }
 
@@ -245,7 +228,6 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
     return itensNaoReembolsaveis.some(item => item.codigo === codigo)
   }
 
-  // Nova função para verificar se um produto deve ser bloqueado baseado na nova lógica
   const isProdutoProibido = (nomeProduto: string): boolean => {
     if (!nomeProduto) return false
     
@@ -271,9 +253,11 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
     updateTelefoneMotoristaConfig,
     getMotoristaByTelefone,
     empresas,
+    isLoadingEmpresas,
     addEmpresa,
     removeEmpresa,
     updateEmpresa,
+    refreshEmpresas,
     itensNaoReembolsaveis,
     addItemNaoReembolsavel,
     removeItemNaoReembolsavel,
