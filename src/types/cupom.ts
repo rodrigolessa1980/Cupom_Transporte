@@ -102,9 +102,10 @@ export interface CupomFiscalResumo {
 
 // Interface para configuração de telefone x motorista
 export interface TelefoneMotoristaConfig {
-  telefone: string
+  telefone?: string | null
   motorista: string
   id: string
+  empresa_id?: number | null
   criadoEm: Date
   atualizadoEm: Date
 } 

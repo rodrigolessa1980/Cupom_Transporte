@@ -65,6 +65,20 @@ export interface EmpresaInput {
   telefone: string
 }
 
+// Interface para Motorista
+export interface Motorista {
+  id: number
+  nome: string
+  telefone?: string | null
+  empresa_id?: number | null
+}
+
+export interface MotoristaInput {
+  nome: string
+  telefone?: string | null
+  empresa_id?: number | null
+}
+
 // Interface para gerenciamento de usuários
 export interface SystemUser {
   id: number
@@ -121,16 +135,16 @@ interface ApiCupom {
 // Função para converter dados da API para o formato da aplicação
 const convertApiCupomToCupomFiscal = (apiCupom: ApiCupom): CupomFiscal => {
   const dataRegistro = new Date(apiCupom.data_registro)
-
+  
   // Determinar o status baseado nos dados da API
   let status: 'PAGO' | 'Pendente' | 'Cancelado' = 'Pendente'
-
+  
   if (apiCupom.status) {
     // Se a API retorna um status, usar ele
     const apiStatus = apiCupom.status.toUpperCase()
     if (apiStatus === 'PAGO' || apiStatus === 'PENDENTE' || apiStatus === 'CANCELADO') {
-      status = apiStatus === 'PAGO' ? 'PAGO' :
-        apiStatus === 'PENDENTE' ? 'Pendente' : 'Cancelado'
+      status = apiStatus === 'PAGO' ? 'PAGO' : 
+               apiStatus === 'PENDENTE' ? 'Pendente' : 'Cancelado'
     }
   } else {
     // Lógica alternativa baseada em outros campos da API
@@ -140,7 +154,7 @@ const convertApiCupomToCupomFiscal = (apiCupom: ApiCupom): CupomFiscal => {
     }
     // Você pode adicionar mais lógica aqui baseada em outros campos
   }
-
+  
   return {
     id: apiCupom.id.toString(),
     dadosEstabelecimento: {
@@ -325,6 +339,119 @@ export const cupomApi = {
     }
   },
 
+  // ===== FUNÇÕES PARA MOTORISTAS (tabela via webhook) =====
+  async getAllMotoristas(): Promise<Motorista[]> {
+    try {
+    const response = await axios.get<Motorista[]>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/motorista', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 10000
+      })
+      return response.data || []
+    } catch (error) {
+      console.error('Erro ao carregar motoristas:', error)
+      throw new Error('Não foi possível carregar os motoristas')
+    }
+  },
+
+  async createMotorista(motorista: MotoristaInput): Promise<Motorista> {
+    try {
+      const response = await axios.post<{ success: boolean, message: string, data?: Motorista }>(
+        'https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/motorista',
+        {
+          nome: motorista.nome,
+          telefone: motorista.telefone || null,
+          empresa_id: motorista.empresa_id ?? null
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao criar motorista')
+      }
+
+      if (response.data.data) return response.data.data
+
+      // Caso a API não retorne o objeto, buscar novamente
+      const motoristas = await this.getAllMotoristas()
+      const novo = motoristas.find(m => m.nome === motorista.nome && (motorista.telefone ? m.telefone === motorista.telefone : true))
+      if (!novo) throw new Error('Motorista criado mas não foi possível recuperar os dados')
+      return novo
+    } catch (error) {
+      console.error('Erro ao criar motorista:', error)
+      throw new Error('Não foi possível criar o motorista')
+    }
+  },
+
+  async updateMotorista(id: number, motoristaData: Partial<MotoristaInput>): Promise<Motorista> {
+    try {
+      const response = await axios.put<{ success: boolean, message: string, data?: Motorista }>(
+        `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/motorista`,
+        {
+          id,
+          nome: motoristaData.nome,
+          telefone: motoristaData.telefone ?? null,
+          empresa_id: motoristaData.empresa_id ?? null
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao atualizar motorista')
+      }
+
+      if (response.data.data) return response.data.data
+
+      // Buscar e retornar motorista atualizado
+      const motoristas = await this.getAllMotoristas()
+      const atualizado = motoristas.find(m => m.id === id)
+      if (!atualizado) throw new Error('Motorista não encontrado após atualização')
+      return atualizado
+    } catch (error) {
+      console.error('Erro ao atualizar motorista:', error)
+      throw new Error('Não foi possível atualizar o motorista')
+    }
+  },
+
+  async deleteMotorista(id: number): Promise<void> {
+    try {
+      const response = await axios.delete<{ success: boolean, message: string }>(
+        `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/motorista`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          data: { id: id },
+          timeout: 10000
+        }
+      )
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Erro ao excluir motorista')
+      }
+
+      console.log('Motorista excluído com sucesso')
+    } catch (error) {
+      console.error('Erro ao excluir motorista:', error)
+      throw new Error('Não foi possível excluir o motorista')
+    }
+  },
+
   // ===== FUNÇÕES PARA USUÁRIOS =====
   async getAllUsers(): Promise<SystemUser[]> {
     try {
@@ -493,8 +620,8 @@ export const cupomApi = {
           novoStatus = 2 // Default para Operador Ativo
       }
 
-      // Atualizar o status
-      return await this.updateUser(id, { status: novoStatus })
+      // Atualizar o status com todos os dados do usuário
+      return await this.updateUser(id, { ...usuario, status: novoStatus })
     } catch (error) {
       console.error('Erro ao alterar status do usuário:', error)
       throw new Error('Não foi possível alterar o status do usuário')
@@ -512,20 +639,20 @@ export const cupomApi = {
         },
         timeout: 10000 // 10 segundos de timeout
       })
-
+      
       console.log('Resposta da API recebida:', response.status)
-
+      
       if (!response.data || !response.data.data) {
         console.warn('Resposta da API não contém dados esperados')
         return []
       }
-
+      
       const cupons = response.data.data.map(convertApiCupomToCupomFiscal)
       console.log('Cupons convertidos:', cupons.length)
       return cupons
     } catch (error) {
       console.error('Erro ao carregar cupons:', error)
-
+      
       // Se for erro de rede/timeout, retornar array vazio ao invés de quebrar
       if (axios.isAxiosError(error)) {
         if (error.code === 'ECONNABORTED' || error.code === 'NETWORK_ERROR') {
@@ -533,7 +660,7 @@ export const cupomApi = {
           return []
         }
       }
-
+      
       throw new Error('Não foi possível carregar os cupons da API')
     }
   },
@@ -615,10 +742,10 @@ export const cupomApi = {
       // Tentar enviar atualização para a API (se ela suportar)
       // Por enquanto, vamos simular uma requisição PUT/PATCH
       console.log(`Tentando atualizar status do cupom ${id} para ${newStatus} na API`)
-
+      
       // Simular delay da API
       await delay(800)
-
+      
       // Buscar o cupom atualizado da API para garantir que temos os dados mais recentes
       const response = await axios.get<{ data: ApiCupom[] }>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', {
         headers: {
@@ -627,12 +754,12 @@ export const cupomApi = {
         },
         timeout: 10000
       })
-
+      
       const apiCupom = response.data.data.find(cupom => cupom.id.toString() === id)
       if (!apiCupom) {
         throw new Error('Cupom não encontrado na API')
       }
-
+      
       // Converter e retornar com o novo status
       const cupomFiscal = convertApiCupomToCupomFiscal(apiCupom)
       return {
@@ -657,11 +784,11 @@ export const cupomApi = {
         data: { id: id }, // Enviar o ID do cupom no corpo da requisição
         timeout: 10000 // 10 segundos de timeout
       })
-
+      
       if (response.status !== 200) {
         throw new Error(`Erro na exclusão: ${response.status}`)
       }
-
+      
       console.log(`Cupom ${id} excluído com sucesso`)
     } catch (error) {
       console.error('Erro ao excluir cupom:', error)
@@ -679,9 +806,9 @@ export const cupomApi = {
         timeout: 10000
       })
       const cupons = response.data.data.map(convertApiCupomToCupomFiscal)
-
+      
       const lowerQuery = query.toLowerCase()
-      return cupons.filter(cupom =>
+      return cupons.filter(cupom => 
         cupom.informacoesTransacao.numeroCupom.toLowerCase().includes(lowerQuery) ||
         cupom.dadosEstabelecimento.cnpj.toLowerCase().includes(lowerQuery) ||
         cupom.dadosEstabelecimento.razaoSocial.toLowerCase().includes(lowerQuery) ||
@@ -698,24 +825,24 @@ export const cupomApi = {
   async saveItemProibido(item: ItemProibidoInput): Promise<ItemProibido> {
     try {
       const response = await axios.post<{ success: boolean, message: string, data?: ItemProibido }>(
-        'https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido',
+  'https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/item_proibido',
         {
           produto: item.produto || null,
           grupo: item.grupo || null
         },
         {
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
           timeout: 10000
         }
       )
-
+      
       if (!response.data.success) {
         throw new Error(response.data.message || 'Erro ao salvar item proibido')
       }
-
+      
       console.log('Item proibido salvo com sucesso na API')
       if (response.data.data) {
         return response.data.data
@@ -729,14 +856,29 @@ export const cupomApi = {
 
   async getAllItensProibidos(): Promise<ItemProibido[]> {
     try {
-      const response = await axios.get<ItemProibido[]>('https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido', {
+      console.log('Buscando itens proibidos na API...')
+      const response = await axios.get<any>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/item_proibido', {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
         timeout: 10000
       })
-      return response.data || []
+
+      // API pode retornar diretamente um array ou um envelope { data: [...] }
+      const data = response.data
+      if (Array.isArray(data)) {
+        console.log('Itens proibidos recebidos (array):', data.length)
+        return data
+      }
+
+      if (data && Array.isArray(data.data)) {
+        console.log('Itens proibidos recebidos (envelope.data):', data.data.length)
+        return data.data
+      }
+
+      console.warn('Resposta inesperada ao buscar itens proibidos:', data)
+      return []
     } catch (error) {
       console.error('Erro ao carregar itens proibidos:', error)
       throw new Error('Não foi possível carregar os itens proibidos')
@@ -746,7 +888,7 @@ export const cupomApi = {
   async updateItemProibido(id: number, itemData: ItemProibidoInput): Promise<ItemProibido> {
     try {
       const response = await axios.put<{ success: boolean, message: string, data?: ItemProibido }>(
-        `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido`,
+  `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/item_proibido`,
         {
           id: id,
           produto: itemData.produto || null,
@@ -778,7 +920,7 @@ export const cupomApi = {
   async deleteItemProibido(id: number): Promise<void> {
     try {
       const response = await axios.delete<{ success: boolean, message: string }>(
-        `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/item_proibido`,
+  `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/item_proibido`,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -802,7 +944,7 @@ export const cupomApi = {
   // ===== FUNÇÕES PARA PRODUTOS =====
   async getAllProdutos(): Promise<ApiProduto[]> {
     try {
-      const response = await axios.get<ApiProduto[]>('https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto', {
+  const response = await axios.get<ApiProduto[]>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/produto', {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
@@ -819,7 +961,7 @@ export const cupomApi = {
   async createProduto(produto: ProdutoInput): Promise<ApiProduto> {
     try {
       const response = await axios.post<{ success: boolean, message: string, data?: ApiProduto }>(
-        'https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto',
+  'https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/produto',
         {
           produto: produto.produto || null,
           qtd: produto.qtd || null,
@@ -853,7 +995,7 @@ export const cupomApi = {
   async updateProduto(id: number, produtoData: Partial<ProdutoInput>): Promise<ApiProduto> {
     try {
       const response = await axios.put<{ success: boolean, message: string, data?: ApiProduto }>(
-        `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto`,
+  `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/produto`,
         {
           id: id,
           produto: produtoData.produto || null,
@@ -889,7 +1031,7 @@ export const cupomApi = {
   async deleteProduto(id: number): Promise<void> {
     try {
       const response = await axios.delete<{ success: boolean, message: string }>(
-        `https://dadosbi.monkeybranch.com.br/webhook-test/trans_cupom/produto`,
+  `https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/produto`,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -917,10 +1059,10 @@ export const cupomApi = {
 
       // Buscar usuários do sistema de gerenciamento
       const systemUsers = await this.getAllUsers()
-
+      
       const user = systemUsers.find(
         u => u.user === credentials.username &&
-          u.senha === credentials.password &&
+             u.senha === credentials.password &&
           (u.status === 1 || u.status === 2) // Só permitir login de usuários ativos
       )
 
@@ -956,13 +1098,13 @@ export const cupomApi = {
     try {
       // Em produção, isso validaria o token no servidor
       await delay(500)
-
+      
       // Verificar se o token tem o formato esperado
       if (token.startsWith('token_')) {
         const parts = token.split('_')
         if (parts.length >= 2) {
           const userId = parseInt(parts[1])
-
+          
           // Buscar dados do usuário pelo ID nos usuários do sistema
           const systemUsers = await this.getAllUsers()
           const user = systemUsers.find(u => u.id === userId && (u.status === 1 || u.status === 2))
@@ -981,7 +1123,7 @@ export const cupomApi = {
           }
         }
       }
-
+      
       return {
         success: false,
         message: 'Token inválido'

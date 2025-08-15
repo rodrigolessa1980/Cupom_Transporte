@@ -40,13 +40,17 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
   const [editGrupo, setEditGrupo] = React.useState("")
   const [editTipoItem, setEditTipoItem] = React.useState<"produto" | "grupo">("produto")
   const [isAddingItem, setIsAddingItem] = React.useState(false)
+  // separa o estado de visibilidade do formulário do estado de salvamento
+  const [isSavingItem, setIsSavingItem] = React.useState(false)
   
   // Estados para vinculos telefone/motorista
   const [telefone, setTelefone] = React.useState("")
   const [motorista, setMotorista] = React.useState("")
+  const [empresaVinculoId, setEmpresaVinculoId] = React.useState<string>("__none")
   const [editingVinculoId, setEditingVinculoId] = React.useState<string | null>(null)
   const [editTelefone, setEditTelefone] = React.useState("")
   const [editMotorista, setEditMotorista] = React.useState("")
+  const [editEmpresaVinculoId, setEditEmpresaVinculoId] = React.useState<string>("__none")
   const [isAddingVinculo, setIsAddingVinculo] = React.useState(false)
 
   const { 
@@ -134,7 +138,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
   }
 
   // Funções para gerenciar vínculos telefone/motorista/empresa
-  const handleAddVinculo = () => {
+  const handleAddVinculo = async () => {
     try {
       console.log("Iniciando handleAddVinculo...", { telefone, motorista })
       
@@ -148,11 +152,13 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
       }
 
       console.log("Chamando addTelefoneMotoristaConfig...")
-      addTelefoneMotoristaConfig(telefone.trim(), motorista.trim())
+  const empresaId = empresaVinculoId === '__none' ? undefined : (empresaVinculoId ? parseInt(empresaVinculoId) : undefined)
+  await addTelefoneMotoristaConfig(motorista.trim(), telefone.trim(), empresaId)
       
       console.log("Limpando formulário...")
-      setTelefone("")
-      setMotorista("")
+  setTelefone("")
+  setMotorista("")
+  setEmpresaVinculoId("__none")
       setIsAddingVinculo(false)
       
       toast({
@@ -170,8 +176,8 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
     }
   }
 
-  const handleUpdateVinculo = (id: string) => {
-    if (!editTelefone.trim() || !editMotorista.trim()) {
+  const handleUpdateVinculo = async (id: string) => {
+    if (!editMotorista.trim()) {
       toast({
         title: "Erro",
         description: "Telefone e nome do motorista são obrigatórios",
@@ -179,11 +185,12 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
       })
       return
     }
-
-    updateTelefoneMotoristaConfig(id, editTelefone.trim(), editMotorista.trim())
+  const empresaId = editEmpresaVinculoId === '__none' ? undefined : (editEmpresaVinculoId ? parseInt(editEmpresaVinculoId) : undefined)
+  await updateTelefoneMotoristaConfig(id, editMotorista.trim(), editTelefone.trim(), empresaId)
     setEditingVinculoId(null)
     setEditTelefone("")
     setEditMotorista("")
+  setEditEmpresaVinculoId("__none")
     
     toast({
       title: "Sucesso",
@@ -203,6 +210,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
     setEditingVinculoId(vinculo.id)
     setEditTelefone(vinculo.telefone)
     setEditMotorista(vinculo.motorista)
+  setEditEmpresaVinculoId(vinculo.empresa_id ? vinculo.empresa_id.toString() : "__none")
   }
 
   // Funções para gerenciar itens proibidos
@@ -226,31 +234,44 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
       return
     }
 
-    setIsAddingItem(true)
-    try {
+  console.log('handleAddItem called', { tipoItem, produto, grupo })
+  // marcar início do fluxo de salvamento (estado separado da visibilidade do formulário)
+  setIsSavingItem(true)
+  console.log('isSavingItem -> true')
+  try {
       if (tipoItem === "produto") {
         await addItemNaoReembolsavel(produto.trim(), undefined)
       } else {
         await addItemNaoReembolsavel(undefined, grupo.trim())
       }
-      
+
+      // limpar campos
       setProduto("")
       setGrupo("")
       setTipoItem("produto")
+
+      // fechar formulário e resetar estado de salvamento
+      setIsAddingItem(false)
+      setIsSavingItem(false)
+      console.log('isSavingItem -> false (success)')
+
       toast({
         title: "Sucesso",
         description: `${tipoItem === "produto" ? "Produto" : "Grupo"} proibido adicionado com sucesso`
       })
+
+      // Recarregar itens em background
       refreshItensNaoReembolsaveis()
-    } catch (error) {
+  } catch (error) {
       console.error('Erro ao adicionar item proibido:', error)
+      // garantir que o estado de salvamento seja desfeito em caso de erro
+      setIsSavingItem(false)
+      console.log('isSavingItem -> false (error)')
       toast({
         title: "Erro",
         description: "Não foi possível salvar o item proibido. Tente novamente.",
         variant: "destructive"
       })
-    } finally {
-      setIsAddingItem(false)
     }
   }
 
@@ -482,12 +503,12 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                              </div>
                              <div>
                                <Label htmlFor="empresaVinculo">Transportadora (Opcional)</Label>
-                               <Select value={""} onValueChange={() => {}}>
+                               <Select value={empresaVinculoId} onValueChange={(val) => setEmpresaVinculoId(val)}>
                                  <SelectTrigger>
                                    <SelectValue placeholder="Selecione uma transportadora" />
                                  </SelectTrigger>
-                                 <SelectContent>
-                                   <SelectItem value="">Nenhuma transportadora</SelectItem>
+                                <SelectContent>
+                                  <SelectItem value="__none">Nenhuma transportadora</SelectItem>
                                    {empresas.map((empresa) => (
                                      <SelectItem key={empresa.id} value={empresa.id.toString()}>
                                        {empresa.nome}
@@ -552,19 +573,19 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                        placeholder="Telefone"
                                        type="tel"
                                      />
-                                     <Select value={""} onValueChange={() => {}}>
-                                       <SelectTrigger>
-                                         <SelectValue placeholder="Selecione uma transportadora" />
-                                       </SelectTrigger>
-                                       <SelectContent>
-                                         <SelectItem value="">Nenhuma transportadora</SelectItem>
-                                         {empresas.map((empresa) => (
-                                           <SelectItem key={empresa.id} value={empresa.id.toString()}>
-                                             {empresa.nome}
-                                           </SelectItem>
-                                         ))}
-                                       </SelectContent>
-                                     </Select>
+                                    <Select value={editEmpresaVinculoId} onValueChange={(val) => setEditEmpresaVinculoId(val)}>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Selecione uma transportadora" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__none">Nenhuma transportadora</SelectItem>
+                                        {empresas.map((empresa) => (
+                                          <SelectItem key={empresa.id} value={empresa.id.toString()}>
+                                            {empresa.nome}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
                                      <div className="flex gap-2">
                                        <Button
                                          size="sm"
@@ -591,7 +612,7 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
                                      <div className="text-sm font-medium">{vinculo.motorista}</div>
                                      <div className="font-mono text-sm">{vinculo.telefone}</div>
-                                     <div className="text-sm">-</div>
+                                     <div className="text-sm">{vinculo.empresa_id ? (empresas.find(e => e.id === Number(vinculo.empresa_id))?.nome || '-') : '-'}</div>
                                      <div className="flex gap-2">
                                        <Button
                                          variant="outline"
@@ -809,225 +830,105 @@ export function ConfiguracoesModal({ open, onOpenChange }: ConfiguracoesModalPro
                 </Card>
               </TabsContent>
 
-                             {/* Aba Itens Proibidos */}
-               <TabsContent value="itens-nao-reembolsaveis" className="mt-6">
-                 <Card>
-                   <CardHeader>
-                     <CardTitle className="flex items-center gap-2">
-                       <Package className="h-5 w-5" />
-                       Itens Proibidos
-                     </CardTitle>
-                     <CardDescription>
-                       Configure produtos que não podem ser reembolsados
-                     </CardDescription>
-                   </CardHeader>
-                   <CardContent className="space-y-6">
-                     {/* Botão para adicionar novo item */}
-                     {!isAddingItem && (
-                       <Button
-                         onClick={() => setIsAddingItem(true)}
-                         className="w-full"
-                       >
-                         <Plus className="h-4 w-4 mr-2" />
-                         Adicionar Novo Item Proibido
-                       </Button>
-                     )}
-
-                     {/* Formulário para adicionar item */}
-                     {isAddingItem && (
-                       <Card>
-                         <CardHeader>
-                           <CardTitle className="text-lg">Novo Item Proibido</CardTitle>
-                           <CardDescription>
-                             Escolha se deseja bloquear um produto específico ou um grupo inteiro de produtos
-                           </CardDescription>
-                         </CardHeader>
-                         <CardContent className="space-y-4">
-                           <div>
-                             <Label htmlFor="tipoItem">Tipo de Bloqueio</Label>
-                             <Select value={tipoItem} onValueChange={(value: "produto" | "grupo") => setTipoItem(value)}>
-                               <SelectTrigger>
-                                 <SelectValue placeholder="Selecione o tipo" />
-                               </SelectTrigger>
-                               <SelectContent>
-                                 <SelectItem value="produto">Produto Específico</SelectItem>
-                                 <SelectItem value="grupo">Grupo de Produtos</SelectItem>
-                               </SelectContent>
-                             </Select>
-                             <p className="text-xs text-muted-foreground mt-1">
-                               {tipoItem === "produto" 
-                                 ? "Bloqueia apenas o produto específico (ex: Coca-Cola)" 
-                                 : "Bloqueia TODOS os produtos do grupo (ex: todos os refrigerantes)"
-                               }
-                             </p>
-                           </div>
-                           
-                           {tipoItem === "produto" ? (
-                             <div>
-                               <Label htmlFor="produto">Nome do Produto</Label>
-                               <Input
-                                 id="produto"
-                                 value={produto}
-                                 onChange={(e) => setProduto(e.target.value)}
-                                 placeholder="Ex: Coca-Cola, Pepsi, Doritos..."
-                               />
-                             </div>
-                           ) : (
-                             <div>
-                               <Label htmlFor="grupo">Nome do Grupo</Label>
-                               <Input
-                                 id="grupo"
-                                 value={grupo}
-                                 onChange={(e) => setGrupo(e.target.value)}
-                                 placeholder="Ex: Refrigerante, Salgadinho, Bebida Alcoólica..."
-                               />
-                             </div>
-                           )}
-                           
-                           <div className="flex gap-2 justify-end">
-                             <Button
-                               variant="outline"
-                               onClick={() => {
-                                 setIsAddingItem(false)
-                                 setProduto("")
-                                 setGrupo("")
-                                 setTipoItem("produto")
-                               }}
-                             >
-                               <XIcon className="h-4 w-4 mr-2" />
-                               Cancelar
-                             </Button>
-                             <Button onClick={handleAddItem} disabled={isAddingItem}>
-                               <Save className="h-4 w-4 mr-2" />
-                               Salvar
-                             </Button>
-                           </div>
-                         </CardContent>
-                       </Card>
-                     )}
-
-                     {/* Lista de itens proibidos */}
-                     {itensNaoReembolsaveis.length > 0 && (
-                       <div className="space-y-2">
-                         <h3 className="text-lg font-medium">Itens Proibidos Cadastrados</h3>
-                         <div className="border rounded-lg">
-                           <div className="p-4 border-b bg-muted/50">
-                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm font-medium">
-                               <span>Código</span>
-                               <span>Nome</span>
-                               <span>Tipo</span>
-                               <span>Ações</span>
-                             </div>
-                           </div>
-                           <div className="divide-y">
-                             {itensNaoReembolsaveis.map((item) => (
-                               <div key={item.id} className="p-4">
-                                 {editingItemId === item.id ? (
-                                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                                     <div className="font-mono text-sm text-muted-foreground">
-                                       {item.id}
-                                     </div>
-                                     <div className="space-y-2">
-                                       <Select value={editTipoItem} onValueChange={(value: "produto" | "grupo") => setEditTipoItem(value)}>
-                                         <SelectTrigger>
-                                           <SelectValue />
-                                         </SelectTrigger>
-                                         <SelectContent>
-                                           <SelectItem value="produto">Produto Específico</SelectItem>
-                                           <SelectItem value="grupo">Grupo de Produtos</SelectItem>
-                                         </SelectContent>
-                                       </Select>
-                                       {editTipoItem === "produto" ? (
-                                         <Input
-                                           value={editProduto}
-                                           onChange={(e) => setEditProduto(e.target.value)}
-                                           placeholder="Nome do produto"
-                                         />
-                                       ) : (
-                                         <Input
-                                           value={editGrupo}
-                                           onChange={(e) => setEditGrupo(e.target.value)}
-                                           placeholder="Nome do grupo"
-                                         />
-                                       )}
-                                     </div>
-                                     <div className="text-sm text-muted-foreground">
-                                       {editTipoItem === "produto" ? "Produto Específico" : "Grupo de Produtos"}
-                                     </div>
+                             {/* Aba Itens Proibidos (refatorada) */}
+                             <TabsContent value="itens-nao-reembolsaveis" className="mt-6">
+                               <Card>
+                                 <CardHeader>
+                                   <CardTitle className="flex items-center gap-2">
+                                     <Package className="h-5 w-5" />
+                                     Itens Proibidos
+                                   </CardTitle>
+                                   <CardDescription>Configure produtos que não podem ser reembolsados</CardDescription>
+                                 </CardHeader>
+                                 <CardContent className="space-y-4">
+                                   {/* Add / Form */}
+                                   {!isAddingItem ? (
                                      <div className="flex gap-2">
-                                       <Button
-                                         size="sm"
-                                         onClick={() => handleUpdateItem(item.id)}
-                                       >
-                                         <Save className="h-3 w-3 mr-1" />
-                                         Salvar
-                                       </Button>
-                                       <Button
-                                         size="sm"
-                                         variant="outline"
-                                         onClick={() => {
-                                           setEditingItemId(null)
-                                           setEditProduto("")
-                                           setEditGrupo("")
-                                           setEditTipoItem("produto")
-                                         }}
-                                       >
-                                         <XIcon className="h-3 w-3 mr-1" />
-                                         Cancelar
+                                       <Button className="w-full" onClick={() => setIsAddingItem(true)}>
+                                         <Plus className="h-4 w-4 mr-2" />
+                                         Novo Item Proibido
                                        </Button>
                                      </div>
-                                   </div>
-                                 ) : (
-                                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                                     <div className="font-mono text-sm">{item.id}</div>
-                                     <div className="text-sm font-medium">{item.produto || item.grupo}</div>
-                                     <div className="text-sm">
-                                       {item.produto ? (
-                                         <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                                           Produto Específico
-                                         </span>
-                                       ) : item.grupo ? (
-                                         <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">
-                                           Grupo de Produtos
-                                         </span>
-                                       ) : (
-                                         <span className="text-muted-foreground">-</span>
-                                       )}
-                                     </div>
-                                     <div className="flex gap-2">
-                                       <Button
-                                         variant="outline"
-                                         size="sm"
-                                         onClick={() => startEditItem(item)}
-                                       >
-                                         <Edit className="h-4 w-4" />
-                                       </Button>
-                                       <Button
-                                         variant="outline"
-                                         size="sm"
-                                         onClick={() => handleRemoveItem(item.id)}
-                                       >
-                                         <Trash2 className="h-4 w-4" />
-                                       </Button>
-                                     </div>
-                                   </div>
-                                 )}
-                               </div>
-                             ))}
-                           </div>
-                         </div>
-                       </div>
-                     )}
+                                   ) : (
+                                     <div className="space-y-3 border rounded p-4 bg-background">
+                                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                         <div>
+                                           <Label htmlFor="tipoItem">Tipo de Bloqueio</Label>
+                                           <Select value={tipoItem} onValueChange={(v: "produto" | "grupo") => setTipoItem(v)}>
+                                             <SelectTrigger>
+                                               <SelectValue placeholder="Selecione o tipo" />
+                                             </SelectTrigger>
+                                             <SelectContent>
+                                               <SelectItem value="produto">Produto Específico</SelectItem>
+                                               <SelectItem value="grupo">Grupo de Produtos</SelectItem>
+                                             </SelectContent>
+                                           </Select>
+                                         </div>
+                                         <div className="md:col-span-2">
+                                           <Label htmlFor="valorItem">{tipoItem === 'produto' ? 'Nome do Produto' : 'Nome do Grupo'}</Label>
+                                           <Input
+                                             id="valorItem"
+                                             value={tipoItem === 'produto' ? produto : grupo}
+                                             onChange={(e) => {
+                                               if (tipoItem === 'produto') setProduto(e.target.value)
+                                               else setGrupo(e.target.value)
+                                             }}
+                                             placeholder={tipoItem === 'produto' ? 'Ex: Coca-Cola' : 'Ex: Refrigerante'}
+                                           />
+                                         </div>
+                                       </div>
 
-                     {itensNaoReembolsaveis.length === 0 && !isAddingItem && (
-                       <div className="text-center text-muted-foreground py-8">
-                         <p>Nenhum item proibido cadastrado</p>
-                         <p className="text-sm">Clique no botão acima para adicionar um item</p>
-                       </div>
-                     )}
-                   </CardContent>
-                 </Card>
-               </TabsContent>
+                                       <div className="flex justify-end gap-2">
+                                         <Button
+                                           variant="outline"
+                                           onClick={() => {
+                                             setIsAddingItem(false)
+                                             setProduto("")
+                                             setGrupo("")
+                                             setTipoItem('produto')
+                                           }}
+                                         >
+                                           Cancelar
+                                         </Button>
+                                         <Button
+                                           onClick={handleAddItem}
+                                           disabled={isSavingItem || ((tipoItem === 'produto' && !produto.trim()) || (tipoItem === 'grupo' && !grupo.trim()))}
+                                         >
+                                           {isSavingItem ? 'Salvando...' : 'Salvar'}
+                                         </Button>
+                                       </div>
+                                     </div>
+                                   )}
+
+                                   {/* Lista simplificada */}
+                                   <div>
+                                     <h3 className="text-lg font-medium mb-2">Itens Cadastrados</h3>
+                                     {itensNaoReembolsaveis.length === 0 ? (
+                                       <div className="text-muted-foreground">Nenhum item proibido cadastrado</div>
+                                     ) : (
+                                       <div className="space-y-2">
+                                         {itensNaoReembolsaveis.map(item => (
+                                           <div key={item.id} className="flex items-center justify-between p-2 border rounded">
+                                             <div>
+                                               <div className="font-medium">{item.produto || item.grupo}</div>
+                                               <div className="text-xs text-muted-foreground">ID: {item.id}</div>
+                                             </div>
+                                             <div className="flex gap-2">
+                                               <Button size="sm" variant="outline" onClick={() => startEditItem(item)}>
+                                                 Editar
+                                               </Button>
+                                               <Button size="sm" variant="ghost" onClick={() => handleRemoveItem(item.id)}>
+                                                 Remover
+                                               </Button>
+                                             </div>
+                                           </div>
+                                         ))}
+                                       </div>
+                                     )}
+                                   </div>
+                                 </CardContent>
+                               </Card>
+                             </TabsContent>
 
 
 

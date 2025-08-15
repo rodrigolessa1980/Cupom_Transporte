@@ -13,9 +13,9 @@ export interface ItemNaoReembolsavel {
 
 interface ConfiguracoesContextType {
   telefoneMotoristaConfigs: TelefoneMotoristaConfig[]
-  addTelefoneMotoristaConfig: (telefone: string, motorista: string) => void
-  removeTelefoneMotoristaConfig: (id: string) => void
-  updateTelefoneMotoristaConfig: (id: string, telefone: string, motorista: string) => void
+  addTelefoneMotoristaConfig: (motorista: string, telefone?: string | undefined, empresa_id?: number | null) => Promise<void>
+  removeTelefoneMotoristaConfig: (id: string) => Promise<void>
+  updateTelefoneMotoristaConfig: (id: string, motorista: string, telefone?: string | undefined, empresa_id?: number | null) => Promise<void>
   getMotoristaByTelefone: (telefone: string | null | undefined) => string | null
   
   // Funcionalidades para empresas
@@ -69,6 +69,52 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
 
     // Carregar empresas da API
     refreshEmpresas()
+      
+      // Sincronizar motoristas do servidor com o que temos localmente
+      ;(async () => {
+        try {
+          const serverMotoristas = await cupomApi.getAllMotoristas()
+          // Mapear para o formato TelefoneMotoristaConfig
+          const serverConfigs: TelefoneMotoristaConfig[] = serverMotoristas.map(m => ({
+            id: m.id.toString(),
+            telefone: m.telefone ?? null,
+            motorista: m.nome,
+            empresa_id: m.empresa_id ?? null,
+            criadoEm: new Date(),
+            atualizadoEm: new Date()
+          }))
+          
+          setTelefoneMotoristaConfigs(prev => {
+            // Prev contem os configs carregados do localStorage (fallbacks locais tambem)
+            // Mesclar: manter todos serverConfigs (autoridade), e adicionar prev que NAO existem no servidor (ids nao numericos ou ids locais)
+            const serverIds = new Set(serverConfigs.map(s => s.id))
+            const merged = [ ...serverConfigs ]
+            prev.forEach(p => {
+              // se o registro local tiver id numerico e existir no servidor, pular (server vence)
+              const numeric = parseInt(p.id)
+              if (!isNaN(numeric)) {
+                if (!serverIds.has(p.id)) {
+                  merged.push(p)
+                }
+              } else {
+                // id local (fallback) -> manter
+                merged.push(p)
+              }
+            })
+            
+            // Salvar mesclado no localStorage para manter consistencia local
+            try {
+              localStorage.setItem('telefoneMotoristaConfigs', JSON.stringify(merged))
+            } catch (e) {
+              console.warn('Nao foi possivel salvar telefoneMotoristaConfigs no localStorage:', e)
+            }
+            
+            return merged
+          })
+        } catch (err) {
+          console.warn('Falha ao sincronizar motoristas do servidor:', err)
+        }
+      })()
   }, [])
 
   // Salvar configurações no localStorage sempre que mudarem
@@ -109,46 +155,96 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
     }
   }
 
-  const addTelefoneMotoristaConfig = (telefone: string, motorista: string) => {
-    try {
-      const newConfig: TelefoneMotoristaConfig = {
-        id: Date.now().toString(),
-        telefone,
-        motorista,
-        criadoEm: new Date(),
-        atualizadoEm: new Date()
+  const addTelefoneMotoristaConfig = async (motorista: string, telefone?: string | undefined, empresa_id?: number | null) => {
+      try {
+        // Tentar criar o motorista na API e usar o ID retornado
+        try {
+          const created = await cupomApi.createMotorista({ nome: motorista, telefone: telefone ?? null, empresa_id: empresa_id ?? null })
+          const newConfig: TelefoneMotoristaConfig = {
+            id: created.id.toString(),
+            telefone: created.telefone || telefone || null,
+            motorista: created.nome,
+            empresa_id: created.empresa_id ?? null,
+            criadoEm: new Date(),
+            atualizadoEm: new Date()
+          }
+          setTelefoneMotoristaConfigs(prev => {
+            const updated = [...prev, newConfig]
+            localStorage.setItem('telefoneMotoristaConfigs', JSON.stringify(updated))
+            return updated
+          })
+          return
+        } catch (err) {
+          console.warn('Falha ao criar motorista na API, fallback para armazenamento local', err)
+        }
+
+        // Fallback: persistir localmente
+        const newConfig: TelefoneMotoristaConfig = {
+          id: Date.now().toString(),
+          telefone: telefone ?? null,
+          motorista,
+          empresa_id: empresa_id ?? null,
+          criadoEm: new Date(),
+          atualizadoEm: new Date()
+        }
+        setTelefoneMotoristaConfigs(prev => {
+          const updated = [...prev, newConfig]
+          localStorage.setItem('telefoneMotoristaConfigs', JSON.stringify(updated))
+          return updated
+        })
+      } catch (error) {
+        console.error('Erro ao adicionar configuração:', error)
+        throw error
       }
-      console.log("Adicionando nova configuração:", newConfig)
-      setTelefoneMotoristaConfigs(prev => {
-        const updated = [...prev, newConfig]
-        // Salvar no localStorage
-        localStorage.setItem('telefoneMotoristaConfigs', JSON.stringify(updated))
-        return updated
-      })
-    } catch (error) {
-      console.error("Erro ao adicionar configuração:", error)
     }
-  }
 
-  const removeTelefoneMotoristaConfig = (id: string) => {
-    setTelefoneMotoristaConfigs(prev => prev.filter(config => config.id !== id))
-  }
+  const removeTelefoneMotoristaConfig = async (id: string) => {
+      try {
+        // Se o ID for numérico, tentar remover o motorista na API
+        const numericId = parseInt(id)
+        if (!isNaN(numericId)) {
+          try {
+            await cupomApi.deleteMotorista(numericId)
+          } catch (err) {
+            console.warn('Falha ao remover motorista na API, removendo localmente', err)
+          }
+        }
+        setTelefoneMotoristaConfigs(prev => prev.filter(config => config.id !== id))
+      } catch (error) {
+        console.error('Erro ao remover configuração:', error)
+        throw error
+      }
+    }
 
-  const updateTelefoneMotoristaConfig = (id: string, telefone: string, motorista: string) => {
-    setTelefoneMotoristaConfigs(prev => 
-      prev.map(config => 
-        config.id === id 
-          ? { ...config, telefone, motorista, atualizadoEm: new Date() }
-          : config
-      )
-    )
-  }
+  const updateTelefoneMotoristaConfig = async (id: string, motorista: string, telefone?: string | undefined, empresa_id?: number | null) => {
+      try {
+        const numericId = parseInt(id)
+        if (!isNaN(numericId)) {
+          try {
+            await cupomApi.updateMotorista(numericId, { nome: motorista, telefone: telefone ?? null, empresa_id: empresa_id ?? null })
+          } catch (err) {
+            console.warn('Falha ao atualizar motorista na API, atualizando localmente', err)
+          }
+        }
+
+        setTelefoneMotoristaConfigs(prev => 
+          prev.map(config => 
+            config.id === id 
+              ? { ...config, telefone: telefone ?? null, motorista, empresa_id: empresa_id ?? null, atualizadoEm: new Date() }
+              : config
+          )
+        )
+      } catch (error) {
+        console.error('Erro ao atualizar configuração:', error)
+        throw error
+      }
+    }
 
   const getMotoristaByTelefone = (telefone: string | null | undefined): string | null => {
     if (!telefone) return null
     
     const config = telefoneMotoristaConfigs.find(
-      config => config.telefone.replace(/\D/g, '') === telefone.replace(/\D/g, '')
+      config => config.telefone && telefone && config.telefone.replace(/\D/g, '') === telefone.replace(/\D/g, '')
     )
     
     return config ? config.motorista : null
@@ -198,12 +294,13 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
         atualizadoEm: new Date()
       }
       
-      // Salvar no banco de dados via API
-      await cupomApi.saveItemProibido({
-        codigo: newItem.produto || newItem.grupo || '', // Usar produto ou grupo como código
-        descricao: newItem.produto || newItem.grupo || '', // Usar produto ou grupo como descrição
-        categoria: newItem.produto ? "PRODUTO" : "GRUPO" // Determinar categoria
+      // Salvar no banco de dados via API (API espera produto/grupo)
+      console.log('addItemNaoReembolsavel: salvando item na API', { produto: newItem.produto, grupo: newItem.grupo })
+      const saved = await cupomApi.saveItemProibido({
+        produto: newItem.produto || undefined,
+        grupo: newItem.grupo || undefined
       })
+      console.log('addItemNaoReembolsavel: resposta da API', saved)
       
       setItensNaoReembolsaveis(prev => [...prev, newItem])
     } catch (error) {
@@ -224,17 +321,9 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
 
   const updateItemNaoReembolsavel = async (id: number, produto?: string, grupo?: string) => {
     try {
-      const itemData: ItemNaoReembolsavel = {
-        id,
-        produto,
-        grupo,
-        criadoEm: itensNaoReembolsaveis.find(item => item.id === id)?.criadoEm || new Date(),
-        atualizadoEm: new Date()
-      }
       await cupomApi.updateItemProibido(id, {
-        codigo: produto || grupo || '',
-        descricao: produto || grupo || '',
-        categoria: produto ? "PRODUTO" : "GRUPO"
+        produto: produto || undefined,
+        grupo: grupo || undefined
       })
       setItensNaoReembolsaveis(prev => 
         prev.map(item => 

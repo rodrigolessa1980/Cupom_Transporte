@@ -152,6 +152,19 @@ export function CupomForm({ cupom, onSave, onCancel, isLoading, cuponsExistentes
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="estabelecimento">Estabelecimento</Label>
+                <Input
+                  id="estabelecimento"
+                  {...register("dadosEstabelecimento.razaoSocial")}
+                  placeholder="Nome do estabelecimento"
+                  disabled={isSubmitting || isLoading}
+                />
+                {errors.dadosEstabelecimento?.razaoSocial && (
+                  <p className="text-sm text-destructive">{errors.dadosEstabelecimento.razaoSocial.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="cnpjEmitente">CNPJ Emitente</Label>
                 <Input
                   id="cnpjEmitente"
@@ -161,6 +174,19 @@ export function CupomForm({ cupom, onSave, onCancel, isLoading, cuponsExistentes
                 />
                 {errors.dadosEstabelecimento?.cnpj && (
                   <p className="text-sm text-destructive">{errors.dadosEstabelecimento.cnpj.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="telefone">Telefone</Label>
+                <Input
+                  id="telefone"
+                  {...register("dadosEstabelecimento.telefone")}
+                  placeholder="(00) 00000-0000"
+                  disabled={isSubmitting || isLoading}
+                />
+                {errors.dadosEstabelecimento?.telefone && (
+                  <p className="text-sm text-destructive">{errors.dadosEstabelecimento.telefone.message}</p>
                 )}
               </div>
 
@@ -189,6 +215,74 @@ export function CupomForm({ cupom, onSave, onCancel, isLoading, cuponsExistentes
                 />
                 {errors.totais?.valorTotal && (
                   <p className="text-sm text-destructive">{errors.totais.valorTotal.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="valorReembolso">Valor Reembolso (R$)</Label>
+                <Input
+                  id="valorReembolso"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  {...register("totais.valorReembolso", { valueAsNumber: true })}
+                  placeholder="0,00"
+                  disabled={isSubmitting || isLoading}
+                />
+                {errors.totais?.valorReembolso && (
+                  <p className="text-sm text-destructive">{errors.totais.valorReembolso.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="formPgto">Forma de Pagamento</Label>
+                <Input
+                  id="formPgto"
+                  {...register("totais.formaPagamento")}
+                  placeholder="Pix, Dinheiro, Cartão..."
+                  disabled={isSubmitting || isLoading}
+                />
+                {errors.totais?.formaPagamento && (
+                  <p className="text-sm text-destructive">{errors.totais.formaPagamento.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="transportadora">Transportadora</Label>
+                <Input
+                  id="transportadora"
+                  {...register("transportadora")}
+                  placeholder="Nome da transportadora"
+                  disabled={isSubmitting || isLoading}
+                />
+                {errors.transportadora && (
+                  <p className="text-sm text-destructive">{errors.transportadora.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Input
+                  id="status"
+                  {...register("status")}
+                  placeholder="Pendente, Pago, Cancelado..."
+                  disabled={isSubmitting || isLoading}
+                />
+                {errors.status && (
+                  <p className="text-sm text-destructive">{errors.status.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="donoCupomId">ID do Dono do Cupom</Label>
+                <Input
+                  id="donoCupomId"
+                  {...register("dono_cupom_id")}
+                  placeholder="ID do usuário dono do cupom"
+                  disabled={isSubmitting || isLoading}
+                />
+                {errors.dono_cupom_id && (
+                  <p className="text-sm text-destructive">{errors.dono_cupom_id.message}</p>
                 )}
               </div>
             </div>
