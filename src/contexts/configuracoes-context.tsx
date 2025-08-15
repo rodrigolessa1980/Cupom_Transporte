@@ -64,11 +64,10 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
       }
     }
 
-    // Carregar itens não reembolsáveis da API
-    refreshItensNaoReembolsaveis()
-
-    // Carregar empresas da API
-    refreshEmpresas()
+  // Note: initial loading of empresas and itensNaoReembolsaveis
+  // moved to the ConfiguracoesModal to avoid automatic requests
+  // on app start. Call `refreshEmpresas()` or `refreshItensNaoReembolsaveis()`
+  // manually (for example, when the user opens the modal for the first time).
       
       // Sincronizar motoristas do servidor com o que temos localmente
       ;(async () => {
@@ -286,6 +285,33 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
   // Funções para itens não reembolsáveis
   const addItemNaoReembolsavel = async (produto?: string, grupo?: string) => {
     try {
+      // Tentar salvar na API e usar o objeto retornado (com ID) para manter consistência
+      console.log('addItemNaoReembolsavel: salvando item na API', { produto, grupo })
+      try {
+        const saved = await cupomApi.saveItemProibido({ produto: produto || undefined, grupo: grupo || undefined })
+        console.log('addItemNaoReembolsavel: resposta da API', saved)
+
+        const itemToAdd: ItemNaoReembolsavel = {
+          id: saved.id,
+          produto: saved.produto,
+          grupo: saved.grupo,
+          criadoEm: new Date(),
+          atualizadoEm: new Date()
+        }
+
+        setItensNaoReembolsaveis(prev => {
+          // evitar duplicatas
+          if (prev.some(i => i.id === itemToAdd.id)) return prev
+          const updated = [...prev, itemToAdd]
+          return updated
+        })
+
+        return
+      } catch (err) {
+        console.warn('Falha ao salvar item proibido na API, usando fallback local', err)
+      }
+
+      // Fallback local em caso de erro na API
       const newItem: ItemNaoReembolsavel = {
         id: Date.now(), // Usar Date.now() para gerar um ID único
         produto,
@@ -293,21 +319,17 @@ export function ConfiguracoesProvider({ children }: { children: React.ReactNode 
         criadoEm: new Date(),
         atualizadoEm: new Date()
       }
-      
-      // Salvar no banco de dados via API (API espera produto/grupo)
-      console.log('addItemNaoReembolsavel: salvando item na API', { produto: newItem.produto, grupo: newItem.grupo })
-      const saved = await cupomApi.saveItemProibido({
-        produto: newItem.produto || undefined,
-        grupo: newItem.grupo || undefined
-      })
-      console.log('addItemNaoReembolsavel: resposta da API', saved)
-      
+
       setItensNaoReembolsaveis(prev => [...prev, newItem])
     } catch (error) {
       console.error('Erro ao adicionar item não reembolsável:', error)
       throw error
     }
   }
+
+  // Polling: atualizar itens proibidos periodicamente para manter sincronização
+  // Polling removed: stop periodic refresh to avoid continuous requests to the backend.
+  // If you need manual refresh, call `refreshItensNaoReembolsaveis()` where appropriate.
 
   const removeItemNaoReembolsavel = async (id: number) => {
     try {

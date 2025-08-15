@@ -1,23 +1,26 @@
-import * as React from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { motion } from "framer-motion"
-import { Loader2, Save, X } from "lucide-react"
+import * as React from 'react'
+import { useForm } from 'react-hook-form'
+// (no resolver for simplified DB-only form)
+import { motion } from 'framer-motion'
+import { Loader2, Save, X } from 'lucide-react'
 
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { DatePicker } from "@/components/ui/date-picker"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { cupomFiscalSchema } from "@/schemas/cupom"
-import { CupomFiscal, CupomFiscalInput } from "@/types/cupom"
-import { formatCNPJ, verificarCupomDuplicado } from "@/lib/utils"
-import { useToast } from "@/hooks/use-toast"
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Label } from '@/components/ui/label'
+// ...existing code...
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+// schema intentionally not used here; form is simplified to DB fields
+import { CupomFiscal, CupomFiscalInput } from '@/types/cupom'
+import { formatCNPJ } from '@/lib/utils'
+import { useToast } from '@/hooks/use-toast'
+import { cupomApi } from '@/lib/api'
+import { useConfiguracoes } from '@/contexts/configuracoes-context'
+// ...existing code...
 
 interface CupomFormProps {
   cupom?: CupomFiscal
-  onSave: (data: CupomFiscalInput) => Promise<void>
+  onSave: (data: CupomFiscalInput) => Promise<any>
   onCancel: () => void
   isLoading?: boolean
   cuponsExistentes?: CupomFiscal[]
@@ -26,301 +29,221 @@ interface CupomFormProps {
 export function CupomForm({ cupom, onSave, onCancel, isLoading, cuponsExistentes = [] }: CupomFormProps) {
   const { toast } = useToast()
   const isEditing = !!cupom
-
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    formState: { errors, isSubmitting },
-  } = useForm<CupomFiscalInput>({
-    resolver: zodResolver(cupomFiscalSchema),
+  const { empresas, refreshEmpresas } = useConfiguracoes()
+  const { register, handleSubmit, setValue, watch, trigger, formState: { errors, isSubmitting } } = useForm<any>({
+    shouldFocusError: false,
     defaultValues: {
-      dadosEstabelecimento: {
-        razaoSocial: cupom?.dadosEstabelecimento.razaoSocial || "",
-        endereco: cupom?.dadosEstabelecimento.endereco || "",
-        cidade: cupom?.dadosEstabelecimento.cidade || "",
-        telefone: cupom?.dadosEstabelecimento.telefone || "",
-        cnpj: cupom?.dadosEstabelecimento.cnpj || "",
-        ie: cupom?.dadosEstabelecimento.ie || "",
-        im: cupom?.dadosEstabelecimento.im || "",
-        nomeFantasia: cupom?.dadosEstabelecimento.nomeFantasia || "",
-      },
-      informacoesTransacao: {
-        data: cupom?.informacoesTransacao.data || new Date(),
-        hora: cupom?.informacoesTransacao.hora || "",
-        coo: cupom?.informacoesTransacao.coo || "",
-        ecf: cupom?.informacoesTransacao.ecf || "",
-        numeroEcf: cupom?.informacoesTransacao.numeroEcf || "",
-        numeroCupom: cupom?.informacoesTransacao.numeroCupom || "",
-      },
-      dadosMotorista: {
-        celular: cupom?.dadosMotorista.celular || "",
-        nome: cupom?.dadosMotorista.nome || "",
-      },
-      itens: cupom?.itens || [],
-      totais: {
-        valorTotal: cupom?.totais.valorTotal || 0,
-        formaPagamento: cupom?.totais.formaPagamento || "",
-        troco: cupom?.totais.troco || 0,
-        desconto: cupom?.totais.desconto || 0,
-      },
-      observacoes: cupom?.observacoes || "",
-      status: cupom?.status || "Pendente",
-    },
+      n_cupom: (cupom as any)?.n_cupom || '',
+      estabelecimento: (cupom as any)?.estabelecimento || '',
+      cnpj: (cupom as any)?.cnpj || '',
+      valor_total: (cupom as any)?.valor_total || 0,
+      valor_reembolso: (cupom as any)?.valor_reembolso || null,
+      form_pgto: (cupom as any)?.form_pgto || '',
+      data_registro: (cupom as any)?.data_registro || undefined,
+  // Se o cupom carregar empresa_id, usar ele; caso contrário, usar transportadora string
+  transportadora: (cupom as any)?.empresa_id ?? (cupom as any)?.transportadora ?? null,
+      telefone: (cupom as any)?.telefone || null,
+      status: (cupom as any)?.status || null,
+      dono_cupom_id: (cupom as any)?.dono_cupom_id || undefined,
+    }
   })
 
-  const watchedDataEmissao = watch("informacoesTransacao.data")
-  const watchedCnpj = watch("dadosEstabelecimento.cnpj")
+  // usuarios removed - using clientes for dono do cupom
+  // const [usuarios, setUsuarios] = React.useState<any[]>([])
+  const [clientes, setClientes] = React.useState<any[]>([])
 
-  // Format CNPJ as user types
+  // Não formatar enquanto o usuário digita para evitar travamentos;
+  // formatamos apenas quando o campo perde o foco (onBlur abaixo).
+
   React.useEffect(() => {
-    if (watchedCnpj) {
-      const formatted = formatCNPJ(watchedCnpj)
-      if (formatted !== watchedCnpj) {
-        setValue("dadosEstabelecimento.cnpj", formatted)
-      }
-    }
-  }, [watchedCnpj, setValue])
+  // cupomApi.getAllUsers().then(u => setUsuarios(u)).catch(e => console.warn('erro usuarios', e))
+  cupomApi.getAllClientes().then(c => setClientes(c)).catch(e => console.warn('erro clientes', e))
+  }, [])
 
-  const onSubmit = async (data: CupomFiscalInput) => {
+  // Se não houver transportadoras carregadas, tentar carregar uma vez ao montar o formulário
+  React.useEffect(() => {
+    if (empresas.length === 0 && typeof refreshEmpresas === 'function') {
+      refreshEmpresas().catch((err: any) => console.warn('Erro ao carregar transportadoras no formulário', err))
+    }
+    // no cleanup necessary
+  }, [empresas.length, refreshEmpresas])
+
+  // produtos UI removed — form now only uses the DB fields
+
+  const onSubmit = async (data: any) => {
     try {
-      // Verificar duplicatas antes de salvar
-      if (!isEditing && cuponsExistentes.length > 0) {
-        const cupomTemporario: CupomFiscal = {
-          id: 'temp',
-          ...data,
-          status: data.status || 'Pendente',
-          criadoEm: new Date(),
-          atualizadoEm: new Date(),
-        }
-        
-        const duplicataInfo = verificarCupomDuplicado(cupomTemporario, cuponsExistentes)
-        
-        if (duplicataInfo.isDuplicado) {
-          toast({
-            title: "Cupom Duplicado Detectado",
-            description: `Já existe um cupom com o mesmo CNPJ (${data.dadosEstabelecimento.cnpj}) e número (${data.informacoesTransacao.numeroCupom}). Verifique os dados antes de continuar.`,
-            variant: "destructive",
-          })
+      // basic duplicate check by n_cupom if provided
+      if (!isEditing && cuponsExistentes.length > 0 && data.n_cupom) {
+        const exists = cuponsExistentes.some(c => (c as any).n_cupom === data.n_cupom)
+        if (exists) {
+          toast({ title: 'Cupom Duplicado', description: 'Já existe um cupom com esse número', variant: 'destructive' })
           return
         }
       }
-      
-      await onSave(data)
-      toast({
-        title: isEditing ? "Cupom atualizado!" : "Cupom criado!",
-        description: isEditing 
-          ? "O cupom foi atualizado com sucesso." 
-          : "O cupom foi cadastrado com sucesso.",
-      })
+
+  // Map the simplified fields into the original CupomFiscalInput shape expected by the app/backend
+      // garantir que data_registro esteja preenchida com o momento do salvamento
+      if (!data.data_registro) {
+        data.data_registro = new Date()
+      }
+
+      const payload: any = {
+        dadosEstabelecimento: {
+          razaoSocial: data.estabelecimento || '',
+          endereco: '',
+          cidade: '',
+          telefone: data.telefone ? String(data.telefone) : '',
+          cnpj: data.cnpj || '',
+          ie: '',
+          im: '',
+          nomeFantasia: data.estabelecimento || ''
+        },
+        informacoesTransacao: {
+          data: data.data_registro ? new Date(data.data_registro) : new Date(),
+          hora: new Date().toTimeString().split(' ')[0],
+          coo: '',
+          ecf: '',
+          numeroEcf: '',
+          numeroCupom: (data as any).n_cupom || ''
+        },
+        dadosMotorista: {
+          celular: data.telefone ? String(data.telefone) : '',
+          nome: data.transportadora || ''
+        },
+        itens: [],
+        totais: {
+          valorTotal: Number(data.valor_total) || 0,
+          formaPagamento: data.form_pgto || '',
+          troco: 0,
+          desconto: 0
+        },
+        observacoes: '',
+        status: (data as any).status || 'Pendente',
+  dono_cupom_id: Number((data as any).dono_cupom_id)
+      }
+
+      await onSave(payload)
+      toast({ title: isEditing ? 'Cupom atualizado' : 'Cupom criado', description: isEditing ? 'Atualizado com sucesso' : 'Criado com sucesso' })
     } catch (error) {
-      toast({
-        title: "Erro",
-        description: "Ocorreu um erro ao salvar o cupom. Tente novamente.",
-        variant: "destructive",
-      })
+      console.error('Erro ao salvar cupom', error)
+      toast({ title: 'Erro', description: 'Erro ao salvar cupom', variant: 'destructive' })
     }
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-    >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
       <Card className="w-full max-w-2xl mx-auto">
         <CardHeader>
-          <CardTitle className="text-2xl">
-            {isEditing ? "Editar Cupom Fiscal" : "Novo Cupom Fiscal"}
-          </CardTitle>
+          <CardTitle className="text-2xl">{isEditing ? 'Editar Cupom Fiscal' : 'Novo Cupom Fiscal'}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="numeroCupom">Número do Cupom</Label>
-                <Input
-                  id="numeroCupom"
-                  {...register("informacoesTransacao.numeroCupom")}
-                  placeholder="Ex: CF-001"
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.informacoesTransacao?.numeroCupom && (
-                  <p className="text-sm text-destructive">{errors.informacoesTransacao.numeroCupom.message}</p>
-                )}
+                <Label htmlFor="n_cupom">Número do Cupom (n_cupom)</Label>
+                <Input id="n_cupom" {...register('n_cupom' as any, { required: 'Número do cupom é obrigatório' })} placeholder="Ex: CF-001" disabled={isSubmitting || isLoading} />
+                {errors?.n_cupom && <div className="text-sm text-destructive mt-1">{String((errors.n_cupom as any).message)}</div>}
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="estabelecimento">Estabelecimento</Label>
-                <Input
-                  id="estabelecimento"
-                  {...register("dadosEstabelecimento.razaoSocial")}
-                  placeholder="Nome do estabelecimento"
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.dadosEstabelecimento?.razaoSocial && (
-                  <p className="text-sm text-destructive">{errors.dadosEstabelecimento.razaoSocial.message}</p>
-                )}
+                <Input id="estabelecimento" {...register('estabelecimento' as any)} placeholder="Nome do estabelecimento" disabled={isSubmitting || isLoading} />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="cnpjEmitente">CNPJ Emitente</Label>
+                <Label htmlFor="cnpj">CNPJ</Label>
                 <Input
-                  id="cnpjEmitente"
-                  {...register("dadosEstabelecimento.cnpj")}
+                  id="cnpj"
+                  {...register('cnpj' as any)}
                   placeholder="00.000.000/0000-00"
                   disabled={isSubmitting || isLoading}
+                  onBlur={(e) => {
+                    const val = (e.target as HTMLInputElement).value
+                    const formatted = formatCNPJ(val)
+                    if (formatted !== val) setValue('cnpj' as any, formatted)
+                  }}
                 />
-                {errors.dadosEstabelecimento?.cnpj && (
-                  <p className="text-sm text-destructive">{errors.dadosEstabelecimento.cnpj.message}</p>
-                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="valor_total">Valor Total (R$)</Label>
+                <Input id="valor_total" type="number" step="0.01" min={0} {...register('valor_total' as any, { valueAsNumber: true, required: 'Valor total é obrigatório', validate: (v) => (Number(v) > 0) || 'Valor total deve ser maior que 0' })} placeholder="0,00" disabled={isSubmitting || isLoading} />
+                {errors?.valor_total && <div className="text-sm text-destructive mt-1">{String((errors.valor_total as any).message)}</div>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="valor_reembolso">Valor Reembolso (R$)</Label>
+                <Input id="valor_reembolso" type="number" step="0.01" min={0} {...register('valor_reembolso' as any, { valueAsNumber: true })} placeholder="0,00" disabled={isSubmitting || isLoading} />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="form_pgto">Forma de Pagamento</Label>
+                <Input id="form_pgto" {...register('form_pgto' as any)} placeholder="Pix, Dinheiro, Cartão..." disabled={isSubmitting || isLoading} />
+              </div>
+
+              {/* Data de registro é preenchida automaticamente no momento do salvamento (campo invisível) */}
+
+              <div className="space-y-2">
+                <Label htmlFor="transportadora">Transportadora (empresa)</Label>
+                <Select value={String(watch('transportadora') ?? '__none')} onValueChange={(val) => setValue('transportadora' as any, val === '__none' ? null : Number(val))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione uma transportadora" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">Nenhum</SelectItem>
+                    {empresas && empresas.map((e: any) => (
+                      <SelectItem key={e.id} value={String(e.id)}>{e.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="telefone">Telefone</Label>
-                <Input
-                  id="telefone"
-                  {...register("dadosEstabelecimento.telefone")}
-                  placeholder="(00) 00000-0000"
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.dadosEstabelecimento?.telefone && (
-                  <p className="text-sm text-destructive">{errors.dadosEstabelecimento.telefone.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="dataEmissao">Data de Emissão</Label>
-                <DatePicker
-                  date={watchedDataEmissao}
-                  onSelect={(date) => setValue("informacoesTransacao.data", date || new Date())}
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.informacoesTransacao?.data && (
-                  <p className="text-sm text-destructive">{errors.informacoesTransacao.data.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="valorTotal">Valor Total (R$)</Label>
-                <Input
-                  id="valorTotal"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  {...register("totais.valorTotal", { valueAsNumber: true })}
-                  placeholder="0,00"
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.totais?.valorTotal && (
-                  <p className="text-sm text-destructive">{errors.totais.valorTotal.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="valorReembolso">Valor Reembolso (R$)</Label>
-                <Input
-                  id="valorReembolso"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  {...register("totais.valorReembolso", { valueAsNumber: true })}
-                  placeholder="0,00"
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.totais?.valorReembolso && (
-                  <p className="text-sm text-destructive">{errors.totais.valorReembolso.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="formPgto">Forma de Pagamento</Label>
-                <Input
-                  id="formPgto"
-                  {...register("totais.formaPagamento")}
-                  placeholder="Pix, Dinheiro, Cartão..."
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.totais?.formaPagamento && (
-                  <p className="text-sm text-destructive">{errors.totais.formaPagamento.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="transportadora">Transportadora</Label>
-                <Input
-                  id="transportadora"
-                  {...register("transportadora")}
-                  placeholder="Nome da transportadora"
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.transportadora && (
-                  <p className="text-sm text-destructive">{errors.transportadora.message}</p>
-                )}
+                <Input id="telefone" type="number" {...register('telefone' as any, { valueAsNumber: true })} placeholder="DDD + número" disabled={isSubmitting || isLoading} />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
-                <Input
-                  id="status"
-                  {...register("status")}
-                  placeholder="Pendente, Pago, Cancelado..."
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.status && (
-                  <p className="text-sm text-destructive">{errors.status.message}</p>
-                )}
+                <Input id="status" {...register('status' as any)} placeholder="Pendente, Pago, Cancelado..." disabled={isSubmitting || isLoading} />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="donoCupomId">ID do Dono do Cupom</Label>
-                <Input
-                  id="donoCupomId"
-                  {...register("dono_cupom_id")}
-                  placeholder="ID do usuário dono do cupom"
-                  disabled={isSubmitting || isLoading}
-                />
-                {errors.dono_cupom_id && (
-                  <p className="text-sm text-destructive">{errors.dono_cupom_id.message}</p>
-                )}
+                <Label htmlFor="cliente_id">Dono do Cupom (Cliente)</Label>
+                {/* register a hidden input so cliente_id gets validated by react-hook-form */}
+                <input type="hidden" {...register('dono_cupom_id' as any, { required: 'Dono do cupom é obrigatório' })} />
+                <Select value={String(watch('dono_cupom_id') || '__none')} onValueChange={(val) => setValue('dono_cupom_id' as any, val === '__none' ? undefined : Number(val))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o dono do cupom" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">Nenhum</SelectItem>
+          {clientes.map((c: any) => <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {errors?.dono_cupom_id && <div className="text-sm text-destructive mt-1">{String((errors.dono_cupom_id as any).message)}</div>}
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="observacoes">Observações</Label>
-              <Textarea
-                id="observacoes"
-                {...register("observacoes")}
-                placeholder="Observações adicionais sobre o cupom fiscal (opcional)"
-                rows={4}
-                disabled={isSubmitting || isLoading}
-              />
-              {errors.observacoes && (
-                <p className="text-sm text-destructive">{errors.observacoes.message}</p>
-              )}
-            </div>
-
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onCancel}
-                disabled={isSubmitting || isLoading}
-              >
-                <X className="w-4 h-4 mr-2" />
-                Cancelar
-              </Button>
+              <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting || isLoading}><X className="w-4 h-4 mr-2" />Cancelar</Button>
               <Button
                 type="submit"
                 disabled={isSubmitting || isLoading}
+                onClick={async () => {
+                  console.log('Save button clicked')
+                  try {
+                    // ensure the form 'itens' and totals reflect the local produtos list before validating
+                    const valid = await trigger()
+                    console.log('Form valid?', valid)
+                    if (!valid) console.log('Validation errors:', errors)
+                  } catch (err) {
+                    console.error('Error during trigger validation', err)
+                  }
+                }}
               >
-                {isSubmitting || isLoading ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4 mr-2" />
-                )}
-                {isEditing ? "Atualizar" : "Salvar"}
+                {isSubmitting || isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                {isEditing ? 'Atualizar' : 'Salvar'}
               </Button>
             </div>
           </form>
@@ -328,4 +251,4 @@ export function CupomForm({ cupom, onSave, onCancel, isLoading, cuponsExistentes
       </Card>
     </motion.div>
   )
-} 
+}

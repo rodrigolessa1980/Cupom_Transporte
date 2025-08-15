@@ -206,6 +206,62 @@ const convertApiCupomToCupomFiscal = (apiCupom: ApiCupom): CupomFiscal => {
 // Simulate API delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+// Helper: map various shapes of cupom payload to the DB-shaped flat object
+const mapToDbCupomPayload = (data: any, id?: string) => {
+  // Support both flattened shape and the app's nested CupomFiscalInput
+  const n_cupom = data.n_cupom || data.informacoesTransacao?.numeroCupom || ''
+  const estabelecimento = data.estabelecimento || data.dadosEstabelecimento?.razaoSocial || data.dadosEstabelecimento?.nomeFantasia || ''
+  const cnpj = data.cnpj || data.dadosEstabelecimento?.cnpj || ''
+  const valor_total = (data.valor_total ?? data.totais?.valorTotal ?? 0).toString()
+  const valor_reembolso = (data.valor_reembolso ?? data.totais?.valorReembolso ?? 0).toString()
+  const form_pgto = data.form_pgto || data.totais?.formaPagamento || ''
+  const data_registro_raw = data.data_registro || data.informacoesTransacao?.data || data.informacoesTransacao?.data_registro || new Date()
+  const data_registro = (data_registro_raw instanceof Date) ? data_registro_raw.toISOString().slice(0, 19).replace('T', ' ') : (new Date(data_registro_raw)).toISOString().slice(0, 19).replace('T', ' ')
+  // Garantir que transportadora coincida com os valores do ENUM do banco
+  // transportadora pode ser o id da empresa (number) vindo do formulário
+  const rawTransportadora = data.transportadora ?? data.dadosMotorista?.nome ?? null
+  let transportadora: string | null = null
+  let empresa_id: number | null = null
+  if (rawTransportadora !== null && rawTransportadora !== undefined) {
+    // se for numérico, assume que é um company id
+    const maybeNum = Number(rawTransportadora)
+    if (!isNaN(maybeNum) && maybeNum > 0) {
+      empresa_id = maybeNum
+    } else {
+      // caso contrário, tratar como nome/enum -- manter como string se válido
+      const candidate = String(rawTransportadora).trim()
+      transportadora = candidate || null
+    }
+  }
+
+  // Normalizar telefone e valores numéricos
+  const telefoneRaw = (data.telefone ?? data.dadosMotorista?.celular ?? null)
+  const telefone = telefoneRaw !== null && telefoneRaw !== undefined ? Number(String(telefoneRaw).replace(/\D/g, '')) : null
+  const status = data.status || null
+  // aceitar dono_cupom_id (antigo) ou cliente_id no payload
+  const dono_cupom_id = data.dono_cupom_id !== undefined ? Number(data.dono_cupom_id) : (data.cliente_id !== undefined ? Number(data.cliente_id) : (data.donoId || undefined))
+
+  const payload: any = {
+    n_cupom,
+    estabelecimento,
+    cnpj,
+    // converter valores para number quando aplicável
+    valor_total: Number(valor_total) || 0,
+    valor_reembolso: Number(valor_reembolso) || 0,
+    form_pgto,
+    data_registro,
+    // preferir enviar empresa_id quando disponível
+    transportadora: empresa_id ? null : transportadora,
+    empresa_id: empresa_id,
+    telefone,
+    status,
+  cliente_id: dono_cupom_id
+  }
+
+  if (id) payload.id = id
+  return payload
+}
+
 export const cupomApi = {
   // ===== FUNÇÕES PARA EMPRESAS (TRANSPORTADORAS) =====
   async getAllEmpresas(): Promise<Empresa[]> {
@@ -480,6 +536,29 @@ export const cupomApi = {
     }
   },
 
+  // Buscar clientes (para dono do cupom)
+  async getAllClientes(): Promise<{ id: number, nome: string }[]> {
+    try {
+      console.log('Fazendo requisição para buscar clientes...')
+      const response = await axios.get<any>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cliente', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 10000
+      })
+
+      const data = response.data
+      if (Array.isArray(data)) return data
+      if (data && Array.isArray(data.data)) return data.data
+      console.warn('Resposta inesperada da API de clientes, retornando vazio:', data)
+      return []
+    } catch (error) {
+      console.error('Erro ao carregar clientes:', error)
+      throw new Error('Não foi possível carregar os clientes')
+    }
+  },
+
   async createUser(userData: SystemUserInput): Promise<SystemUser> {
     try {
       console.log('Criando usuário:', userData)
@@ -683,58 +762,53 @@ export const cupomApi = {
   },
 
   async createCupom(data: CupomFiscalInput): Promise<CupomFiscal> {
-    // Como a API não suporta criação, vamos simular
-    await delay(800)
-    const newCupom: CupomFiscal = {
-      id: Date.now().toString(),
-      ...data,
-      status: data.status || 'Pendente',
-      criadoEm: new Date(),
-      atualizadoEm: new Date(),
+    // Tentar enviar criação para a API; se não suportar, fallback para simulação
+    try {
+  const dbPayload = mapToDbCupomPayload(data)
+  console.log('Tentando criar cupom na API (db payload)...', dbPayload)
+  const response = await axios.post<any>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', dbPayload, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        timeout: 10000
+      })
+
+      const respData = response.data
+      // API pode retornar envelope { data: ApiCupom } ou ApiCupom diretamente
+      const apiCupom: ApiCupom | undefined = Array.isArray(respData) ? respData[0] : (respData && respData.data) ? respData.data : respData
+      if (apiCupom) {
+        console.log('Cupom criado na API:', apiCupom)
+        return convertApiCupomToCupomFiscal(apiCupom)
+      }
+
+      // Se não obteve apiCupom, tratar como erro
+      throw new Error('Resposta inesperada ao criar cupom: ' + JSON.stringify(respData))
+    } catch (error) {
+      console.error('Criação de cupom via API falhou', error)
+      throw error
     }
-    return newCupom
   },
 
   async updateCupom(id: string, data: Partial<CupomFiscalInput>): Promise<CupomFiscal> {
-    // Como a API não suporta atualização, vamos simular
-    await delay(600)
-    const updatedCupom: CupomFiscal = {
-      id,
-      dadosEstabelecimento: data.dadosEstabelecimento || {
-        razaoSocial: '',
-        nomeFantasia: '',
-        cnpj: '',
-        ie: '',
-        im: '',
-        endereco: '',
-        cidade: '',
-        telefone: ''
-      },
-      informacoesTransacao: data.informacoesTransacao || {
-        numeroCupom: '',
-        data: new Date(),
-        hora: '',
-        coo: '',
-        ecf: '',
-        numeroEcf: ''
-      },
-      dadosMotorista: data.dadosMotorista || {
-        celular: '',
-        nome: ''
-      },
-      itens: data.itens || [],
-      totais: data.totais || {
-        valorTotal: 0,
-        formaPagamento: '',
-        troco: 0,
-        desconto: 0
-      },
-      observacoes: data.observacoes,
-      status: data.status || 'Pendente',
-      criadoEm: new Date(),
-      atualizadoEm: new Date(),
+    // Tentar enviar atualização para a API; se não suportar, fallback para simulação
+    try {
+  const dbPayload = mapToDbCupomPayload(data, id)
+  console.log(`Tentando atualizar cupom ${id} na API (db payload)...`, dbPayload)
+  const response = await axios.put<any>('https://dadosbi.monkeybranch.com.br/webhook/trans_cupom/cupom', dbPayload, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        timeout: 10000
+      })
+
+      const respData = response.data
+      const apiCupom: ApiCupom | undefined = Array.isArray(respData) ? respData[0] : (respData && respData.data) ? respData.data : respData
+      if (apiCupom) {
+        console.log('Cupom atualizado na API:', apiCupom)
+        return convertApiCupomToCupomFiscal(apiCupom)
+      }
+
+      throw new Error('Resposta inesperada ao atualizar cupom: ' + JSON.stringify(respData))
+    } catch (error) {
+      console.error('Atualização de cupom via API falhou', error)
+      throw error
     }
-    return updatedCupom
   },
 
   async updateCupomStatus(id: string, newStatus: 'PAGO' | 'Pendente' | 'Cancelado'): Promise<CupomFiscal> {

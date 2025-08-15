@@ -89,6 +89,8 @@ export interface CupomFiscalInput {
   totais: TotaisPagamento
   observacoes?: string
   status?: StatusCupom
+  // ID do usuário dono do cupom (opcional)
+  dono_cupom_id?: number | string
 }
 
 // Interface para exibição resumida
@@ -108,4 +110,5 @@ export interface TelefoneMotoristaConfig {
   empresa_id?: number | null
   criadoEm: Date
   atualizadoEm: Date
-} 
+}
+// (file ends)
